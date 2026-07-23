@@ -1,22 +1,22 @@
 import { createClient } from "@supabase/supabase-js";
 import "./styles.css";
 import "./reminders.css";
+import "./timeline.css";
 
 const SUPABASE_URL = "https://jrudwnrorufmxjtjtwip.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RdYwFepv4SzTxHg2jiEVVg_nYFfQKxs";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const root = document.querySelector("#root");
 
-const phases = [
-  "Ordine ricevuto",
-  "Verifica tecnica",
-  "Materiale ordinato",
-  "In produzione",
-  "Saldatura",
-  "Zincatura",
-  "Verniciatura",
-  "Pronto",
-  "Consegnato",
+const workflowSteps = [
+  { key: "materiale_ordinato", label: "Materiale ordinato" },
+  { key: "inizio_lavorazione", label: "Inizio lavorazione" },
+  { key: "fine_lavorazione", label: "Fine lavorazione" },
+  { key: "zincatura", label: "In zincatura", optional: "has_galvanizing" },
+  { key: "verniciatura", label: "In verniciatura", optional: "has_painting" },
+  { key: "arrivo_officina", label: "Arrivo in officina" },
+  { key: "controllo", label: "Controllo" },
+  { key: "pronto_ritiro", label: "Pronto per il ritiro" },
 ];
 
 const esc = (value = "") =>
@@ -126,10 +126,27 @@ function jobCard(job) {
     <h2>${esc(job.title)}</h2>
     <div class="progress-line"><strong>${Number(job.progress)}% completato</strong><span>Aggiornato: ${formatDate(job.updated_at)}</span></div>
     <div class="progress"><span style="width:${Number(job.progress)}%"></span></div>
+    ${workflowTimeline(job)}
     <div class="job-note"><span>Ultimo aggiornamento</span><p>${esc(job.note || "Nessuna nota disponibile.")}</p></div>
     <div class="job-foot"><span>Consegna prevista</span><strong>${esc(job.delivery || "Da programmare")}</strong></div>
     <button class="reminder-btn send-reminder" data-job="${job.id}">🔔 Richiedi un aggiornamento</button>
   </article>`;
+}
+
+function applicableSteps(job) {
+  return workflowSteps.filter((step) => !step.optional || Boolean(job[step.optional]));
+}
+
+function workflowTimeline(job) {
+  const steps = applicableSteps(job);
+  const activeIndex = Math.max(0, steps.findIndex((step) => step.key === job.current_step));
+  return `<div class="timeline">
+    <div class="timeline-title">STATO DELLA LAVORAZIONE</div>
+    ${steps.map((step, index) => {
+      const state = index < activeIndex ? "done" : index === activeIndex ? "current" : "pending";
+      return `<div class="timeline-step ${state}"><span class="timeline-dot">${state === "done" ? "✓" : index + 1}</span><strong>${esc(step.label)}</strong></div>`;
+    }).join("")}
+  </div>`;
 }
 
 async function sendReminder(token, jobId) {
@@ -285,7 +302,7 @@ function newJobModal(clientId) {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
     data.client_id = clientId;
-    data.progress = Number(data.progress);
+    normalizeJobData(data);
     const { error } = await supabase.from("jobs").insert(data);
     if (error) return notice(error.message, "error");
     notice("Lavorazione aggiunta.");
@@ -298,7 +315,7 @@ function editJobModal(job) {
   document.querySelector("#job-form").onsubmit = async (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
-    data.progress = Number(data.progress);
+    normalizeJobData(data);
     data.updated_at = new Date().toISOString();
     const { error } = await supabase.from("jobs").update(data).eq("id", job.id);
     if (error) return notice(error.message, "error");
@@ -311,14 +328,27 @@ function jobForm(job = {}) {
   return `<form id="job-form">
     <label>Descrizione<input name="title" required value="${esc(job.title)}" placeholder="Es. Cancello carrabile"></label>
     <label>Codice commessa<input name="code" value="${esc(job.code)}" placeholder="COM-2026-001"></label>
-    <div class="form-grid">
-      <label>Fase<select name="phase">${phases.map((phase) => `<option ${job.phase === phase ? "selected" : ""}>${phase}</option>`).join("")}</select></label>
-      <label>Avanzamento %<input name="progress" type="number" min="0" max="100" value="${Number(job.progress || 0)}"></label>
+    <label>Step attuale<select name="current_step">${workflowSteps.map((step) => `<option value="${step.key}" ${job.current_step === step.key ? "selected" : ""}>${step.label}</option>`).join("")}</select></label>
+    <div class="checks">
+      <label><input name="has_galvanizing" type="checkbox" ${job.has_galvanizing ? "checked" : ""}> Prevede zincatura</label>
+      <label><input name="has_painting" type="checkbox" ${job.has_painting ? "checked" : ""}> Prevede verniciatura</label>
     </div>
     <label>Consegna prevista<input name="delivery" value="${esc(job.delivery)}" placeholder="Es. Prima settimana di agosto"></label>
     <label>Nota visibile al cliente<textarea name="note" rows="4">${esc(job.note)}</textarea></label>
     <button class="primary" type="submit">Salva lavorazione</button>
   </form>`;
+}
+
+function normalizeJobData(data) {
+  data.has_galvanizing = data.has_galvanizing === "on";
+  data.has_painting = data.has_painting === "on";
+  const steps = workflowSteps.filter((step) => !step.optional || data[step.optional]);
+  if (!steps.some((step) => step.key === data.current_step)) {
+    data.current_step = steps.find((step) => step.key === "arrivo_officina")?.key || steps[0].key;
+  }
+  const activeIndex = Math.max(0, steps.findIndex((step) => step.key === data.current_step));
+  data.progress = Math.round(((activeIndex + 1) / steps.length) * 100);
+  data.phase = workflowSteps.find((step) => step.key === data.current_step)?.label || "Materiale ordinato";
 }
 
 async function regenerateLink(clientId) {
