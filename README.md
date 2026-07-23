@@ -2,12 +2,13 @@
 
 Portale pubblico per la gestione e la consultazione dello stato delle lavorazioni SIMPRO Lamiere.
 
-## Configurazione iniziale
+## Configurazione iniziale completata
 
-1. Aprire Supabase → SQL Editor.
-2. Eseguire integralmente `supabase/schema.sql`.
-3. In GitHub aprire Settings → Pages e selezionare **GitHub Actions**.
-4. Aprire il sito pubblicato, inserire `fabrizio986@gmail.com` e scegliere **Crea il primo accesso**.
-5. Confermare l'email ricevuta da Supabase e accedere.
+- Database Supabase configurato.
+- Pubblicazione automatica tramite GitHub Pages attiva.
+- Accesso amministratore riservato a SIMPRO.
+- Ogni cliente riceve un link personale revocabile.
 
-I clienti non devono creare account: ricevono da SIMPRO un link personale revocabile.
+## Primo accesso
+
+Aprire il sito pubblicato, inserire `fabrizio986@gmail.com` e scegliere **Crea il primo accesso**. Confermare l'email ricevuta da Supabase e accedere.
