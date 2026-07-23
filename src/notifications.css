@@ -1,0 +1,14 @@
+.notification-check {
+  margin: 4px 0 18px;
+  border-color: #f0c9cc;
+  background: #fff8f8;
+}
+
+.notification-check label {
+  margin: 0;
+}
+
+.notification-check small {
+  color: #7d8791;
+  line-height: 1.45;
+}
