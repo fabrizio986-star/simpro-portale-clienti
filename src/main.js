@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import "./styles.css";
+import "./reminders.css";
 
 const SUPABASE_URL = "https://jrudwnrorufmxjtjtwip.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RdYwFepv4SzTxHg2jiEVVg_nYFfQKxs";
@@ -110,10 +111,13 @@ async function clientPage(token) {
         <p>Qui trovi lo stato aggiornato delle lavorazioni associate alla tua azienda.</p>
       </section>
       <section class="job-grid">
-        ${jobs.length ? jobs.map(jobCard).join("") : `<div class="empty"><h2>Nessuna lavorazione presente</h2><p>Le nuove lavorazioni compariranno qui appena inserite da SIMPRO.</p></div>`}
+        ${jobs.length ? jobs.map((job) => jobCard(job, token)).join("") : `<div class="empty"><h2>Nessuna lavorazione presente</h2><p>Le nuove lavorazioni compariranno qui appena inserite da SIMPRO.</p></div>`}
       </section>
       <div class="privacy">🔒 Visualizzi esclusivamente le lavorazioni associate al tuo link personale.</div>
     </main>`;
+  document.querySelectorAll(".send-reminder").forEach((button) => {
+    button.onclick = () => sendReminder(token, button.dataset.job);
+  });
 }
 
 function jobCard(job) {
@@ -124,7 +128,21 @@ function jobCard(job) {
     <div class="progress"><span style="width:${Number(job.progress)}%"></span></div>
     <div class="job-note"><span>Ultimo aggiornamento</span><p>${esc(job.note || "Nessuna nota disponibile.")}</p></div>
     <div class="job-foot"><span>Consegna prevista</span><strong>${esc(job.delivery || "Da programmare")}</strong></div>
+    <button class="reminder-btn send-reminder" data-job="${job.id}">🔔 Richiedi un aggiornamento</button>
   </article>`;
+}
+
+async function sendReminder(token, jobId) {
+  const message = prompt("Scrivi un breve messaggio per SIMPRO (facoltativo):", "Vorrei ricevere un aggiornamento su questa lavorazione.");
+  if (message === null) return;
+  const { data, error } = await supabase.rpc("submit_client_reminder", {
+    p_token: token,
+    p_job_id: jobId,
+    p_message: message.trim().slice(0, 500),
+  });
+  if (error) return notice("Non è stato possibile inviare il sollecito.", "error");
+  if (!data?.ok) return notice(data?.message || "Hai già inviato un sollecito recente.", "error");
+  notice("Sollecito inviato a SIMPRO.");
 }
 
 function formatDate(value) {
@@ -136,21 +154,24 @@ async function adminPage() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return loginPage();
   root.innerHTML = `<div class="loading">Caricamento pannello…</div>`;
-  const [{ data: clients, error: clientError }, { data: jobs, error: jobError }] = await Promise.all([
+  const [{ data: clients, error: clientError }, { data: jobs, error: jobError }, { data: reminders, error: reminderError }] = await Promise.all([
     supabase.from("clients").select("*").order("created_at", { ascending: false }),
     supabase.from("jobs").select("*").order("created_at", { ascending: false }),
+    supabase.from("client_reminders").select("*").order("created_at", { ascending: false }),
   ]);
-  if (clientError || jobError) {
+  if (clientError || jobError || reminderError) {
     root.innerHTML = `<main class="not-found">${logo()}<h1>Configurazione necessaria</h1><p>Il database del portale non è ancora configurato. Esegui il file <strong>supabase/schema.sql</strong> nel SQL Editor di Supabase.</p><button class="primary fit" id="logout">Esci</button></main>`;
     document.querySelector("#logout").onclick = () => supabase.auth.signOut().then(loginPage);
     return;
   }
-  renderAdmin(clients || [], jobs || [], clients?.[0]?.id || null);
+  renderAdmin(clients || [], jobs || [], reminders || [], clients?.[0]?.id || null);
 }
 
-function renderAdmin(clients, jobs, selectedId) {
+function renderAdmin(clients, jobs, reminders, selectedId) {
   const selected = clients.find((client) => client.id === selectedId) || clients[0] || null;
   const selectedJobs = selected ? jobs.filter((job) => job.client_id === selected.id) : [];
+  const selectedReminders = selected ? reminders.filter((item) => item.client_id === selected.id && !item.handled) : [];
+  const openReminders = reminders.filter((item) => !item.handled);
   root.innerHTML = `
     <header class="topbar">${logo()}<div class="account"><span><small>Amministratore</small><strong>SIMPRO Lamiere</strong></span><button id="logout">Esci</button></div></header>
     <main class="admin-layout">
@@ -158,6 +179,7 @@ function renderAdmin(clients, jobs, selectedId) {
         <span class="side-title">GESTIONE</span>
         <button class="active">▦ Clienti e lavorazioni</button>
         <div class="stat"><span>Clienti inseriti</span><strong>${clients.length}</strong></div>
+        <div class="stat reminder-stat"><span>Solleciti da gestire</span><strong>${openReminders.length}</strong></div>
       </aside>
       <section class="admin-main">
         <div class="admin-title"><div><span class="eyebrow red">PANNELLO AMMINISTRATORE</span><h1>Clienti e lavorazioni</h1></div><button class="primary fit" id="new-client">+ Nuovo cliente</button></div>
@@ -169,7 +191,7 @@ function renderAdmin(clients, jobs, selectedId) {
             </div>
           </section>
           <section class="detail">
-            ${selected ? clientDetail(selected, selectedJobs) : `<div class="empty"><h2>Inserisci il primo cliente</h2><p>Premi “Nuovo cliente” per iniziare.</p></div>`}
+            ${selected ? clientDetail(selected, selectedJobs, selectedReminders) : `<div class="empty"><h2>Inserisci il primo cliente</h2><p>Premi “Nuovo cliente” per iniziare.</p></div>`}
           </section>
         </div>
       </section>
@@ -178,7 +200,7 @@ function renderAdmin(clients, jobs, selectedId) {
 
   document.querySelector("#logout").onclick = () => supabase.auth.signOut().then(loginPage);
   document.querySelector("#new-client").onclick = () => newClientModal();
-  document.querySelectorAll(".client-row").forEach((button) => button.onclick = () => renderAdmin(clients, jobs, button.dataset.id));
+  document.querySelectorAll(".client-row").forEach((button) => button.onclick = () => renderAdmin(clients, jobs, reminders, button.dataset.id));
   const search = document.querySelector("#search");
   search.oninput = () => document.querySelectorAll(".client-row").forEach((row) => {
     row.hidden = !row.textContent.toLowerCase().includes(search.value.toLowerCase());
@@ -188,19 +210,31 @@ function renderAdmin(clients, jobs, selectedId) {
     document.querySelector("#new-job").onclick = () => newJobModal(selected.id);
     document.querySelector("#regenerate-link").onclick = () => regenerateLink(selected.id);
     document.querySelectorAll(".edit-job").forEach((button) => button.onclick = () => editJobModal(selectedJobs.find((job) => job.id === button.dataset.id)));
+    document.querySelectorAll(".handle-reminder").forEach((button) => button.onclick = () => markReminderHandled(button.dataset.id));
   }
 }
 
-function clientDetail(client, jobs) {
+function clientDetail(client, jobs, reminders) {
   return `<div class="detail-head">
       <div><small>CLIENTE</small><h2>${esc(client.name)}</h2><p>${esc(client.contact_name || "")}${client.email ? ` · ${esc(client.email)}` : ""}</p></div>
       <span class="status ${client.active ? "" : "off"}">${client.active ? "Attivo" : "Disattivato"}</span>
     </div>
+    ${reminders.length ? `<div class="reminders-box"><div class="reminders-title">🔔 SOLLECITI DEL CLIENTE</div>${reminders.map((item) => {
+      const job = jobs.find((entry) => entry.id === item.job_id);
+      return `<div class="reminder-row"><span><strong>${esc(job?.title || "Lavorazione")}</strong><small>${formatDate(item.created_at)} · ${esc(item.message || "Richiesta di aggiornamento")}</small></span><button class="handle-reminder" data-id="${item.id}">Segna gestito</button></div>`;
+    }).join("")}</div>` : ""}
     <div class="link-box"><span>LINK PERSONALE DEL CLIENTE</span><code>${esc(clientLink(client.access_token))}</code><div><button id="copy-link" class="primary fit">Copia link</button><button id="regenerate-link" class="secondary fit">Genera nuovo link</button></div></div>
     <div class="section-title"><div><h3>Lavorazioni</h3><span>${jobs.length} presenti</span></div><button id="new-job" class="primary fit">+ Aggiungi</button></div>
     <div class="work-list">
       ${jobs.length ? jobs.map((job) => `<button class="work-row edit-job" data-id="${job.id}"><span><strong>${esc(job.title)}</strong><small>${esc(job.code || "")} · ${esc(job.phase)}</small></span><b>${Number(job.progress)}%</b></button>`).join("") : `<div class="empty small"><p>Nessuna lavorazione inserita.</p></div>`}
     </div>`;
+}
+
+async function markReminderHandled(id) {
+  const { error } = await supabase.from("client_reminders").update({ handled: true, handled_at: new Date().toISOString() }).eq("id", id);
+  if (error) return notice(error.message, "error");
+  notice("Sollecito segnato come gestito.");
+  adminPage();
 }
 
 function clientLink(token) {
