@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import "./styles.css";
 import "./reminders.css";
 import "./timeline.css";
+import "./deletion.css";
 
 const SUPABASE_URL = "https://jrudwnrorufmxjtjtwip.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RdYwFepv4SzTxHg2jiEVVg_nYFfQKxs";
@@ -311,7 +312,8 @@ function newJobModal(clientId) {
 }
 
 function editJobModal(job) {
-  modal(`<span class="eyebrow red">AGGIORNA LAVORAZIONE</span><h2>${esc(job.title)}</h2>${jobForm(job)}`);
+  modal(`<span class="eyebrow red">AGGIORNA LAVORAZIONE</span><h2>${esc(job.title)}</h2>${jobForm(job)}
+    <button class="danger" id="delete-job" type="button">Elimina lavorazione</button>`);
   document.querySelector("#job-form").onsubmit = async (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
@@ -320,6 +322,13 @@ function editJobModal(job) {
     const { error } = await supabase.from("jobs").update(data).eq("id", job.id);
     if (error) return notice(error.message, "error");
     notice("Aggiornamento salvato.");
+    adminPage();
+  };
+  document.querySelector("#delete-job").onclick = async () => {
+    if (!confirm(`Eliminare definitivamente la lavorazione "${job.title}"?`)) return;
+    const { error } = await supabase.from("jobs").delete().eq("id", job.id);
+    if (error) return notice(error.message, "error");
+    notice("Lavorazione eliminata.");
     adminPage();
   };
 }
