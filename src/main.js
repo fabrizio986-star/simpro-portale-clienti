@@ -3,6 +3,7 @@ import "./styles.css";
 import "./reminders.css";
 import "./timeline.css";
 import "./deletion.css";
+import "./notifications.css";
 
 const SUPABASE_URL = "https://jrudwnrorufmxjtjtwip.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RdYwFepv4SzTxHg2jiEVVg_nYFfQKxs";
@@ -312,16 +313,29 @@ function newJobModal(clientId) {
 }
 
 function editJobModal(job) {
-  modal(`<span class="eyebrow red">AGGIORNA LAVORAZIONE</span><h2>${esc(job.title)}</h2>${jobForm(job)}
+  modal(`<span class="eyebrow red">AGGIORNA LAVORAZIONE</span><h2>${esc(job.title)}</h2>${jobForm(job, true)}
     <button class="danger" id="delete-job" type="button">Elimina lavorazione</button>`);
   document.querySelector("#job-form").onsubmit = async (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
+    const notifyClient = data.notify_client === "on";
+    delete data.notify_client;
     normalizeJobData(data);
     data.updated_at = new Date().toISOString();
     const { error } = await supabase.from("jobs").update(data).eq("id", job.id);
     if (error) return notice(error.message, "error");
-    notice("Aggiornamento salvato.");
+    if (notifyClient) {
+      const { error: emailError } = await supabase.functions.invoke("notify-client", {
+        body: { job_id: job.id },
+      });
+      if (emailError) {
+        notice("Aggiornamento salvato, ma l’email non è stata inviata.", "error");
+        return adminPage();
+      }
+      notice("Aggiornamento salvato ed email inviata.");
+    } else {
+      notice("Aggiornamento salvato.");
+    }
     adminPage();
   };
   document.querySelector("#delete-job").onclick = async () => {
@@ -333,7 +347,7 @@ function editJobModal(job) {
   };
 }
 
-function jobForm(job = {}) {
+function jobForm(job = {}, showNotification = false) {
   return `<form id="job-form">
     <label>Descrizione<input name="title" required value="${esc(job.title)}" placeholder="Es. Cancello carrabile"></label>
     <label>Codice commessa<input name="code" value="${esc(job.code)}" placeholder="COM-2026-001"></label>
@@ -344,6 +358,10 @@ function jobForm(job = {}) {
     </div>
     <label>Consegna prevista<input name="delivery" value="${esc(job.delivery)}" placeholder="Es. Prima settimana di agosto"></label>
     <label>Nota visibile al cliente<textarea name="note" rows="4">${esc(job.note)}</textarea></label>
+    ${showNotification ? `<div class="checks notification-check">
+      <label><input name="notify_client" type="checkbox"> Invia email al cliente dopo il salvataggio</label>
+      <small>L’email verrà inviata all’indirizzo presente nella scheda cliente.</small>
+    </div>` : ""}
     <button class="primary" type="submit">Salva lavorazione</button>
   </form>`;
 }
