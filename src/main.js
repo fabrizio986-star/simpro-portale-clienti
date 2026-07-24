@@ -4,9 +4,14 @@ import "./reminders.css";
 import "./timeline.css";
 import "./deletion.css";
 import "./notifications.css";
+import "./client-edit.css";
 
 const SUPABASE_URL = "https://jrudwnrorufmxjtjtwip.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RdYwFepv4SzTxHg2jiEVVg_nYFfQKxs";
+const CLIENT_PORTAL_URL =
+  window.location.hostname === "clienti.simprolamiere.it"
+    ? "https://clienti.simprolamiere.it/"
+    : new URL("./", window.location.href).toString();
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const root = document.querySelector("#root");
 
@@ -225,6 +230,7 @@ function renderAdmin(clients, jobs, reminders, selectedId) {
     row.hidden = !row.textContent.toLowerCase().includes(search.value.toLowerCase());
   });
   if (selected) {
+    document.querySelector("#edit-client").onclick = () => editClientModal(selected);
     document.querySelector("#copy-link").onclick = () => copyClientLink(selected.access_token);
     document.querySelector("#new-job").onclick = () => newJobModal(selected.id);
     document.querySelector("#regenerate-link").onclick = () => regenerateLink(selected.id);
@@ -236,7 +242,10 @@ function renderAdmin(clients, jobs, reminders, selectedId) {
 function clientDetail(client, jobs, reminders) {
   return `<div class="detail-head">
       <div><small>CLIENTE</small><h2>${esc(client.name)}</h2><p>${esc(client.contact_name || "")}${client.email ? ` · ${esc(client.email)}` : ""}</p></div>
-      <span class="status ${client.active ? "" : "off"}">${client.active ? "Attivo" : "Disattivato"}</span>
+      <div class="client-actions">
+        <span class="status ${client.active ? "" : "off"}">${client.active ? "Attivo" : "Disattivato"}</span>
+        <button id="edit-client" class="secondary fit">Modifica dati</button>
+      </div>
     </div>
     ${reminders.length ? `<div class="reminders-box"><div class="reminders-title">🔔 SOLLECITI DEL CLIENTE</div>${reminders.map((item) => {
       const job = jobs.find((entry) => entry.id === item.job_id);
@@ -257,9 +266,7 @@ async function markReminderHandled(id) {
 }
 
 function clientLink(token) {
-  const url = new URL(window.location.href);
-  url.search = "";
-  url.hash = "";
+  const url = new URL(CLIENT_PORTAL_URL);
   url.searchParams.set("cliente", token);
   return url.toString();
 }
@@ -294,6 +301,30 @@ function newClientModal() {
     const { error } = await supabase.from("clients").insert(data);
     if (error) return notice(error.message, "error");
     notice("Cliente creato.");
+    adminPage();
+  };
+}
+
+function editClientModal(client) {
+  modal(`<span class="eyebrow red">DATI CLIENTE</span><h2>Modifica cliente</h2>
+    <form id="edit-client-form">
+      <label>Ragione sociale<input name="name" required value="${esc(client.name)}"></label>
+      <label>Referente<input name="contact_name" value="${esc(client.contact_name)}"></label>
+      <label>Email<input name="email" type="email" value="${esc(client.email)}"></label>
+      <label>Telefono<input name="phone" value="${esc(client.phone)}"></label>
+      <div class="checks">
+        <label><input name="active" type="checkbox" ${client.active ? "checked" : ""}> Area cliente attiva</label>
+      </div>
+      <button class="primary" type="submit">Salva dati cliente</button>
+    </form>`);
+  document.querySelector("#edit-client-form").onsubmit = async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    data.active = data.active === "on";
+    data.updated_at = new Date().toISOString();
+    const { error } = await supabase.from("clients").update(data).eq("id", client.id);
+    if (error) return notice(error.message, "error");
+    notice("Dati cliente aggiornati.");
     adminPage();
   };
 }
