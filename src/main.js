@@ -141,6 +141,7 @@ function jobCard(job) {
     <div class="progress"><span style="width:${Number(job.progress)}%"></span></div>
     ${workflowTimeline(job)}
     <div class="job-note"><span>Ultimo aggiornamento</span><p>${esc(job.note || "Nessuna nota disponibile.")}</p></div>
+    ${job.requires_installation ? `<div class="installation-badge"><span aria-hidden="true">🧰</span><div><small>SERVIZIO PREVISTO</small><strong>Installazione a cura di SIMPRO</strong></div></div>` : ""}
     <div class="job-foot"><span>Consegna prevista</span><strong>${esc(job.delivery || "Da programmare")}</strong></div>
     <button class="reminder-btn send-reminder" data-job="${job.id}">🔔 Richiedi un aggiornamento</button>
   </article>`;
@@ -418,6 +419,7 @@ function jobForm(job = {}, showNotification = false) {
     <div class="checks">
       <label><input name="has_galvanizing" type="checkbox" ${job.has_galvanizing ? "checked" : ""}> Prevede zincatura</label>
       <label><input name="has_painting" type="checkbox" ${job.has_painting ? "checked" : ""}> Prevede verniciatura</label>
+      <label><input name="requires_installation" type="checkbox" ${job.requires_installation ? "checked" : ""}> Installazione prevista</label>
     </div>
     <label>Consegna prevista<input name="delivery" value="${esc(job.delivery)}" placeholder="Es. Prima settimana di agosto"></label>
     <label>Nota visibile al cliente<textarea name="note" rows="4">${esc(job.note)}</textarea></label>
@@ -432,6 +434,7 @@ function jobForm(job = {}, showNotification = false) {
 function normalizeJobData(data) {
   data.has_galvanizing = data.has_galvanizing === "on";
   data.has_painting = data.has_painting === "on";
+  data.requires_installation = data.requires_installation === "on";
   const steps = workflowSteps.filter((step) => !step.optional || data[step.optional]);
   if (!steps.some((step) => step.key === data.current_step)) {
     data.current_step = steps.find((step) => step.key === "arrivo_officina")?.key || steps[0].key;
