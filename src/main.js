@@ -203,6 +203,7 @@ function renderAdmin(clients, jobs, reminders, selectedId) {
   const selectedJobs = selected ? jobs.filter((job) => job.client_id === selected.id) : [];
   const selectedReminders = selected ? reminders.filter((item) => item.client_id === selected.id && !item.handled) : [];
   const openReminders = reminders.filter((item) => !item.handled);
+  const latestReminderClientId = openReminders.find((item) => clients.some((client) => client.id === item.client_id))?.client_id;
   root.innerHTML = `
     <header class="topbar">${logo()}<div class="account"><span><small>Amministratore</small><strong>SIMPRO Lamiere</strong></span><button id="logout">Esci</button></div></header>
     <main class="admin-layout">
@@ -210,7 +211,7 @@ function renderAdmin(clients, jobs, reminders, selectedId) {
         <span class="side-title">GESTIONE</span>
         <button class="active">▦ Clienti e lavorazioni</button>
         <div class="stat"><span>Clienti inseriti</span><strong>${clients.length}</strong></div>
-        <div class="stat reminder-stat"><span>Solleciti da gestire</span><strong>${openReminders.length}</strong></div>
+        <button class="stat reminder-stat ${openReminders.length ? "has-reminders" : ""}" id="open-reminders" type="button" ${latestReminderClientId ? `data-client-id="${latestReminderClientId}"` : "disabled"} aria-label="${openReminders.length ? "Apri la scheda del cliente con il sollecito più recente" : "Nessun sollecito da gestire"}"><span>Solleciti da gestire</span><strong>${openReminders.length}</strong></button>
       </aside>
       <section class="admin-main">
         <div class="admin-title"><div><span class="eyebrow red">PANNELLO AMMINISTRATORE</span><h1>Clienti e lavorazioni</h1></div><button class="primary fit" id="new-client">+ Nuovo cliente</button></div>
@@ -231,6 +232,10 @@ function renderAdmin(clients, jobs, reminders, selectedId) {
 
   document.querySelector("#logout").onclick = () => supabase.auth.signOut().then(loginPage);
   document.querySelector("#new-client").onclick = () => newClientModal();
+  document.querySelector("#open-reminders").onclick = (event) => {
+    const clientId = event.currentTarget.dataset.clientId;
+    if (clientId) renderAdmin(clients, jobs, reminders, clientId);
+  };
   document.querySelectorAll(".client-row").forEach((button) => button.onclick = () => renderAdmin(clients, jobs, reminders, button.dataset.id));
   const search = document.querySelector("#search");
   search.oninput = () => document.querySelectorAll(".client-row").forEach((row) => {
