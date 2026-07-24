@@ -67,7 +67,7 @@ Deno.serve(async (request) => {
     if (!client.email) throw new Error("Il cliente non ha un indirizzo email.");
     if (!client.active) throw new Error("Il cliente è disattivato.");
 
-    const portalUrl = `https://fabrizio986-star.github.io/simpro-portale-clienti/?cliente=${encodeURIComponent(client.access_token)}`;
+    const portalUrl = `https://clienti.simprolamiere.it/?cliente=${encodeURIComponent(client.access_token)}`;
     const status = stepLabels[job.current_step] || job.phase || "Aggiornamento lavorazione";
     const recipient = client.contact_name || client.name;
 
