@@ -1,0 +1,25 @@
+.client-actions {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 9px;
+}
+
+.client-actions .secondary {
+  margin: 0;
+}
+
+.detail-head {
+  gap: 18px;
+}
+
+@media (max-width: 600px) {
+  .detail-head {
+    align-items: flex-start;
+  }
+
+  .client-actions {
+    align-items: flex-end;
+    flex-direction: column;
+  }
+}
