@@ -14,11 +14,36 @@
 }
 
 .reminder-stat {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   border-color: #7b353a !important;
 }
 
 .reminder-stat strong {
   color: #ff6972;
+}
+
+.reminder-stat.has-reminders {
+  cursor: pointer;
+}
+
+.reminder-stat.has-reminders strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.reminder-stat.has-reminders:hover,
+.reminder-stat.has-reminders:focus-visible {
+  border-color: #ff6972 !important;
+  background: rgba(255, 105, 114, 0.12);
+  outline: none;
+}
+
+.reminder-stat:disabled {
+  cursor: default;
+  opacity: 0.75;
 }
 
 .reminders-box {
