@@ -3,7 +3,8 @@
 alter table public.jobs
   add column if not exists current_step text not null default 'materiale_ordinato',
   add column if not exists has_galvanizing boolean not null default false,
-  add column if not exists has_painting boolean not null default false;
+  add column if not exists has_painting boolean not null default false,
+  add column if not exists requires_installation boolean not null default false;
 
 update public.jobs
 set current_step = case
@@ -42,6 +43,7 @@ as $$
             'current_step', j.current_step,
             'has_galvanizing', j.has_galvanizing,
             'has_painting', j.has_painting,
+            'requires_installation', j.requires_installation,
             'updated_at', j.updated_at
           )
           order by j.created_at desc
