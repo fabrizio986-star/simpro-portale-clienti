@@ -151,7 +151,7 @@ function workflowTimeline(job) {
     <div class="timeline-title">STATO DELLA LAVORAZIONE</div>
     ${steps.map((step, index) => {
       const state = index < activeIndex ? "done" : index === activeIndex ? "current" : "pending";
-      return `<div class="timeline-step ${state}"><span class="timeline-dot">${state === "done" ? "✓" : index + 1}</span><strong>${esc(step.label)}</strong></div>`;
+      return `<div class="timeline-step ${state}"><span class="timeline-dot">${state === "done" ? "✓" : index + 1}</span><strong>${esc(step.label)}</strong>${state === "current" ? `<small>Aggiornato il ${formatDate(job.updated_at)}</small>` : ""}</div>`;
     }).join("")}
   </div>`;
 }
@@ -256,7 +256,7 @@ function clientDetail(client, jobs, reminders) {
     <div class="link-box"><span>LINK PERSONALE DEL CLIENTE</span><code>${esc(clientLink(client.access_token))}</code><div><button id="copy-link" class="primary fit">Copia link</button><button id="regenerate-link" class="secondary fit">Genera nuovo link</button></div></div>
     <div class="section-title"><div><h3>Lavorazioni</h3><span>${jobs.length} presenti</span></div><button id="new-job" class="primary fit">+ Aggiungi</button></div>
     <div class="work-list">
-      ${jobs.length ? jobs.map((job) => `<button class="work-row edit-job" data-id="${job.id}"><span><strong>${esc(job.title)}</strong><small>${esc(job.code || "")} · ${esc(job.phase)}</small></span><b>${Number(job.progress)}%</b></button>`).join("") : `<div class="empty small"><p>Nessuna lavorazione inserita.</p></div>`}
+      ${jobs.length ? jobs.map((job) => `<button class="work-row edit-job" data-id="${job.id}"><span><strong>${esc(job.title)}</strong><small>${esc(job.code || "")} · ${esc(job.phase)} · Aggiornato il ${formatDate(job.updated_at)}</small></span><b>${Number(job.progress)}%</b></button>`).join("") : `<div class="empty small"><p>Nessuna lavorazione inserita.</p></div>`}
     </div>`;
 }
 
