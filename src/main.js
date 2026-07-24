@@ -5,6 +5,7 @@ import "./timeline.css";
 import "./deletion.css";
 import "./notifications.css";
 import "./client-edit.css";
+import "./status-visuals.css";
 
 const SUPABASE_URL = "https://jrudwnrorufmxjtjtwip.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RdYwFepv4SzTxHg2jiEVVg_nYFfQKxs";
@@ -16,14 +17,14 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const root = document.querySelector("#root");
 
 const workflowSteps = [
-  { key: "materiale_ordinato", label: "Materiale ordinato" },
-  { key: "inizio_lavorazione", label: "Inizio lavorazione" },
-  { key: "fine_lavorazione", label: "Fine lavorazione" },
-  { key: "zincatura", label: "In zincatura", optional: "has_galvanizing" },
-  { key: "verniciatura", label: "In verniciatura", optional: "has_painting" },
-  { key: "arrivo_officina", label: "Arrivo in officina" },
-  { key: "controllo", label: "Controllo" },
-  { key: "pronto_ritiro", label: "Pronto per il ritiro" },
+  { key: "materiale_ordinato", label: "Materiale ordinato", icon: "📦", description: "Il materiale necessario è stato ordinato." },
+  { key: "inizio_lavorazione", label: "Inizio lavorazione", icon: "⚙️", description: "La produzione della commessa è iniziata." },
+  { key: "fine_lavorazione", label: "Fine lavorazione", icon: "🛠️", description: "La lavorazione principale è stata completata." },
+  { key: "zincatura", label: "In zincatura", icon: "🛡️", description: "Il manufatto è in fase di zincatura.", optional: "has_galvanizing" },
+  { key: "verniciatura", label: "In verniciatura", icon: "🎨", description: "Il manufatto è in fase di verniciatura.", optional: "has_painting" },
+  { key: "arrivo_officina", label: "Arrivo in officina", icon: "🏭", description: "Il manufatto è rientrato nella nostra officina." },
+  { key: "controllo", label: "Controllo qualità", icon: "🔍", description: "Stiamo effettuando il controllo finale." },
+  { key: "pronto_ritiro", label: "Pronto per il ritiro", icon: "✅", description: "La commessa è pronta per il ritiro o la consegna." },
 ];
 
 const esc = (value = "") =>
@@ -128,9 +129,14 @@ async function clientPage(token) {
 }
 
 function jobCard(job) {
+  const currentStep = workflowSteps.find((step) => step.key === job.current_step) || workflowSteps[0];
   return `<article class="job-card">
-    <div class="job-head"><span>${esc(job.code || "COMMESSA")}</span><b>${esc(job.phase)}</b></div>
+    <div class="job-head"><span>${esc(job.code || "COMMESSA")}</span><b><span>${currentStep.icon}</span>${esc(currentStep.label)}</b></div>
     <h2>${esc(job.title)}</h2>
+    <div class="status-visual status-${esc(currentStep.key)}">
+      <span class="status-illustration" aria-hidden="true">${currentStep.icon}</span>
+      <div><small>STATO ATTUALE</small><strong>${esc(currentStep.label)}</strong><p>${esc(currentStep.description)}</p></div>
+    </div>
     <div class="progress-line"><strong>${Number(job.progress)}% completato</strong><span>Aggiornato: ${formatDate(job.updated_at)}</span></div>
     <div class="progress"><span style="width:${Number(job.progress)}%"></span></div>
     ${workflowTimeline(job)}
@@ -151,7 +157,7 @@ function workflowTimeline(job) {
     <div class="timeline-title">STATO DELLA LAVORAZIONE</div>
     ${steps.map((step, index) => {
       const state = index < activeIndex ? "done" : index === activeIndex ? "current" : "pending";
-      return `<div class="timeline-step ${state}"><span class="timeline-dot">${state === "done" ? "✓" : index + 1}</span><strong>${esc(step.label)}</strong>${state === "current" ? `<small>Aggiornato il ${formatDate(job.updated_at)}</small>` : ""}</div>`;
+      return `<div class="timeline-step ${state}"><span class="timeline-dot">${state === "done" ? "✓" : step.icon}</span><strong>${esc(step.label)}</strong>${state === "current" ? `<small>Aggiornato il ${formatDate(job.updated_at)}</small>` : ""}</div>`;
     }).join("")}
   </div>`;
 }
@@ -256,7 +262,10 @@ function clientDetail(client, jobs, reminders) {
     <div class="link-box"><span>LINK PERSONALE DEL CLIENTE</span><code>${esc(clientLink(client.access_token))}</code><div><button id="copy-link" class="primary fit">Copia link</button><button id="regenerate-link" class="secondary fit">Genera nuovo link</button></div></div>
     <div class="section-title"><div><h3>Lavorazioni</h3><span>${jobs.length} presenti</span></div><button id="new-job" class="primary fit">+ Aggiungi</button></div>
     <div class="work-list">
-      ${jobs.length ? jobs.map((job) => `<button class="work-row edit-job" data-id="${job.id}"><span><strong>${esc(job.title)}</strong><small>${esc(job.code || "")} · ${esc(job.phase)} · Aggiornato il ${formatDate(job.updated_at)}</small></span><b>${Number(job.progress)}%</b></button>`).join("") : `<div class="empty small"><p>Nessuna lavorazione inserita.</p></div>`}
+      ${jobs.length ? jobs.map((job) => {
+        const step = workflowSteps.find((item) => item.key === job.current_step) || workflowSteps[0];
+        return `<button class="work-row edit-job" data-id="${job.id}"><span class="work-icon">${step.icon}</span><span><strong>${esc(job.title)}</strong><small>${esc(job.code || "")} · ${esc(step.label)} · Aggiornato il ${formatDate(job.updated_at)}</small></span><b>${Number(job.progress)}%</b></button>`;
+      }).join("") : `<div class="empty small"><p>Nessuna lavorazione inserita.</p></div>`}
     </div>`;
 }
 
