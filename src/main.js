@@ -231,6 +231,7 @@ function renderAdmin(clients, jobs, reminders, selectedId) {
   });
   if (selected) {
     document.querySelector("#edit-client").onclick = () => editClientModal(selected);
+    document.querySelector("#delete-client").onclick = () => deleteClient(selected, selectedJobs.length);
     document.querySelector("#copy-link").onclick = () => copyClientLink(selected.access_token);
     document.querySelector("#new-job").onclick = () => newJobModal(selected.id);
     document.querySelector("#regenerate-link").onclick = () => regenerateLink(selected.id);
@@ -245,6 +246,7 @@ function clientDetail(client, jobs, reminders) {
       <div class="client-actions">
         <span class="status ${client.active ? "" : "off"}">${client.active ? "Attivo" : "Disattivato"}</span>
         <button id="edit-client" class="secondary fit">Modifica dati</button>
+        <button id="delete-client" class="danger fit" type="button">Elimina cliente</button>
       </div>
     </div>
     ${reminders.length ? `<div class="reminders-box"><div class="reminders-title">🔔 SOLLECITI DEL CLIENTE</div>${reminders.map((item) => {
@@ -327,6 +329,27 @@ function editClientModal(client) {
     notice("Dati cliente aggiornati.");
     adminPage();
   };
+}
+
+async function deleteClient(client, jobsCount) {
+  const jobsText = jobsCount === 1 ? "1 lavorazione collegata" : `${jobsCount} lavorazioni collegate`;
+  const confirmed = confirm(
+    `Vuoi eliminare definitivamente "${client.name}"?\n\nVerranno eliminati anche ${jobsText}, i solleciti e il link personale del cliente.`
+  );
+  if (!confirmed) return;
+
+  const verification = prompt(
+    `Questa operazione non può essere annullata.\nScrivi ELIMINA per confermare la cancellazione di "${client.name}".`
+  );
+  if (verification !== "ELIMINA") {
+    if (verification !== null) notice("Cancellazione annullata: conferma non corretta.", "error");
+    return;
+  }
+
+  const { error } = await supabase.from("clients").delete().eq("id", client.id);
+  if (error) return notice(error.message, "error");
+  notice(`Cliente "${client.name}" eliminato.`);
+  adminPage();
 }
 
 function newJobModal(clientId) {
