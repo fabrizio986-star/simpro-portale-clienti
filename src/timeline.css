@@ -72,6 +72,21 @@
   box-shadow: 0 0 0 4px rgba(217, 35, 46, 0.12);
 }
 
+.timeline-step.pending .timeline-dot {
+  filter: grayscale(1);
+  opacity: 0.62;
+}
+
+.timeline-step.current strong {
+  color: #d9232e;
+}
+
+.timeline-step small {
+  margin-left: auto;
+  color: #7d8791;
+  font-size: 10px;
+}
+
 .checks {
   display: grid;
   grid-template-columns: 1fr 1fr;
