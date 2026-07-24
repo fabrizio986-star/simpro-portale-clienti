@@ -46,6 +46,7 @@ create table if not exists public.jobs (
   progress integer not null default 0 check (progress between 0 and 100),
   delivery text,
   note text,
+  requires_installation boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -91,6 +92,7 @@ as $$
             'progress', j.progress,
             'delivery', j.delivery,
             'note', j.note,
+            'requires_installation', j.requires_installation,
             'updated_at', j.updated_at
           )
           order by j.created_at desc
