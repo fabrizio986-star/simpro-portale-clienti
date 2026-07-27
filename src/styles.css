@@ -96,3 +96,13 @@
 
 .paint-correct-label{display:grid;gap:5px;margin:0;font-size:11px;font-weight:800;color:#a9141e}
 .paint-correct-label select{border-color:#d9232e;background:#fff}
+
+
+.painting-control{margin-bottom:18px}
+.painting-control-row{width:100%;border:1px solid var(--line);border-radius:10px;background:#fff;text-align:left;padding:12px;margin-bottom:9px;display:flex;justify-content:space-between;gap:12px;align-items:center}
+.painting-control-row:hover{border-color:#d9232e;background:#fff5f6}
+.painting-control-row span{display:grid;gap:5px}
+.painting-control-row small{color:#7d8791;line-height:1.35}
+.painting-control-row b{color:var(--red);font-size:12px}
+.driver-card label small{font-weight:400;color:#7d8791;line-height:1.35}
+@media(max-width:600px){.painting-control-row{display:grid}.painting-control-row b{justify-self:start}}
