@@ -37,7 +37,7 @@ const priorities = { urgente: "🔴 Urgente", alta: "🟠 Alta", normale: "🟡 
 const WHATSAPP_NUMBER = "393780669899";
 const whatsappLink = (text = "Buongiorno SIMPRO, vorrei informazioni sulla mia lavorazione.") => `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`;
 const painters = ["DAMAS", "SOSAM", "METALLIKA", "GALLO"];
-let state = { clients: [], jobs: [], reminders: [], audit: [], paintDeliveries: [], jobPhotos: [], selectedId: null, view: "dashboard", quickFilter: "" };
+let state = { clients: [], jobs: [], reminders: [], audit: [], paintDeliveries: [], jobPhotos: [], selectedId: null, view: "dashboard", quickFilter: "", paintFilter: "all" };
 
 const esc = (value = "") => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
 const formatDate = (value) => value ? new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" }).format(new Date(value)) : "—";
@@ -199,9 +199,20 @@ function paintingView() {
   const link = new URL(CLIENT_PORTAL_URL); link.searchParams.set("autista", "1");
   const rows = state.paintDeliveries;
   const openRows = rows.filter((item) => !["rientrato"].includes(item.material_status || "") && !item.checked);
+  const uncheckedRows = rows.filter((item) => !item.checked);
   const byPainter = painters.map((painter) => [painter, rows.filter((item) => item.painter === painter && (item.material_status || "consegnato") !== "rientrato").length]);
   const statusLabel = (value) => paintStatuses[value || "consegnato"] || "Consegnato al verniciatore";
-  const items = rows.map((item) => {
+  const activeFilter = state.paintFilter || "all";
+  const filterLabels = { all: "Tutti", open: "Movimenti aperti", unchecked: "Da controllare", ...Object.fromEntries(painters.map((painter) => [`painter:${painter}`, painter])) };
+  const filteredRows = rows.filter((item) => {
+    if (activeFilter === "all") return true;
+    if (activeFilter === "open") return !["rientrato"].includes(item.material_status || "") && !item.checked;
+    if (activeFilter === "unchecked") return !item.checked;
+    if (activeFilter.startsWith("painter:")) return item.painter === activeFilter.replace("painter:", "");
+    return true;
+  });
+  const paintKpi = (label, value, icon, filter, danger = false) => `<button class="kpi kpi-action paint-filter ${danger ? "danger" : ""} ${activeFilter === filter ? "active" : ""}" data-paint-filter="${esc(filter)}" type="button"><span>${icon}</span><div><small>${esc(label)}</small><strong>${value}</strong></div></button>`;
+  const items = filteredRows.map((item) => {
     const related = state.jobs.find((job) => (item.job_code && job.code?.toLowerCase() === item.job_code.toLowerCase()) || job.title?.toLowerCase().includes(String(item.client_name || "").toLowerCase()));
     const expected = related?.painter;
     const mismatch = expected && expected !== item.painter;
@@ -224,11 +235,12 @@ function paintingView() {
   }).join("");
   return `${titleBlock("Situazione verniciatura", `<a class="secondary fit driver-link" href="${link}" target="_blank" rel="noopener">Apri pagina autista</a>`)}
     <div class="kpi-grid paint-kpis">
-      ${kpi("Movimenti aperti", openRows.length, "🎨", openRows.length > 0)}
-      ${kpi("Da controllare", rows.filter((item) => !item.checked).length, "⚠️", rows.some((item) => !item.checked))}
-      ${byPainter.map(([label, value]) => kpi(label, value, "▦")).join("")}
+      ${paintKpi("Tutti", rows.length, "▦", "all")}
+      ${paintKpi("Movimenti aperti", openRows.length, "🎨", "open", openRows.length > 0)}
+      ${paintKpi("Da controllare", uncheckedRows.length, "⚠️", "unchecked", uncheckedRows.length > 0)}
+      ${byPainter.map(([label, value]) => paintKpi(label, value, "▦", `painter:${label}`)).join("")}
     </div>
-    <section class="panel"><div class="panel-title"><h2>Materiale in verniciatura</h2><span>${rows.length}</span></div>${rows.length ? items : `<div class="empty small"><p>Nessuna consegna inserita dall'autista.</p></div>`}</section>`;
+    <section class="panel"><div class="panel-title"><h2>Materiale in verniciatura</h2><span>${esc(filterLabels[activeFilter] || "Tutti")} · ${filteredRows.length}</span></div>${filteredRows.length ? items : `<div class="empty small"><p>Nessun movimento per questo filtro.</p></div>`}</section>`;
 }
 function statsView() {
   const totals = Object.fromEntries(Object.keys(priorities).map((key) => [key, state.jobs.filter((job) => job.priority === key).length])); const max = Math.max(1, ...Object.values(totals)); const complete = state.jobs.filter((job) => job.workflow_type !== "lamiere").length; const sheets = state.jobs.filter((job) => job.workflow_type === "lamiere").length; const ready = state.jobs.filter(isReady).length;
@@ -237,7 +249,7 @@ function statsView() {
 function adminView() { return `${titleBlock("Amministrazione")}<div class="dashboard-grid"><section class="panel"><div class="panel-title"><h2>Registro modifiche</h2><span>${state.audit.length}</span></div>${state.audit.length ? state.audit.slice(0,40).map((item) => `<div class="activity-row"><span><strong>${esc(item.description || item.action)}</strong><small>${esc(item.user_email || "Amministratore")}</small></span><small>${formatDate(item.created_at)}</small></div>`).join("") : `<div class="empty small"><p>Il registro inizierà con le prossime modifiche.</p></div>`}</section><section class="panel"><div class="panel-title"><h2>Configurazione</h2></div><div class="admin-info"><strong>Dati riservati</strong><p>Verniciatore e note amministrative sono disponibili esclusivamente nel pannello amministratore e non vengono inviati all’area cliente.</p></div><div class="admin-info"><strong>Backup</strong><p>I dati sono conservati su Supabase. È consigliata l’attivazione dei backup automatici dal pannello Supabase.</p></div><div class="admin-info"><strong>Permessi</strong><p>L’accesso amministrativo è limitato alle email presenti nella tabella admin_emails.</p></div></section></div>`; }
 
 function bindView() {
-  document.querySelector("#new-client")?.addEventListener("click", newClientModal); document.querySelectorAll(".kpi-action").forEach((button) => button.onclick = () => { state.quickFilter = button.dataset.filter || ""; state.view = "clients"; renderAdmin(); });
+  document.querySelector("#new-client")?.addEventListener("click", newClientModal); document.querySelectorAll(".paint-filter").forEach((button) => button.onclick = () => { state.paintFilter = button.dataset.paintFilter || "all"; state.view = "painting"; renderAdmin(); }); document.querySelectorAll(".kpi-action:not(.paint-filter)").forEach((button) => button.onclick = () => { state.quickFilter = button.dataset.filter || ""; state.view = "clients"; renderAdmin(); });
   document.querySelectorAll(".open-client").forEach((button) => button.onclick = () => { state.selectedId = button.dataset.client; state.view = "clients"; renderAdmin(); });
   document.querySelectorAll(".check-paint").forEach((button) => button.onclick = () => markPaintingChecked(button.dataset.id));
   document.querySelectorAll(".paint-status-select").forEach((select) => select.onchange = () => updatePaintingStatus(select.dataset.id, select.value));
