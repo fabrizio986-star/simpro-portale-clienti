@@ -249,7 +249,8 @@ function paintingView() {
         <select class="paint-status-select" data-id="${item.id}">
           ${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${(item.material_status || "consegnato") === key ? "selected" : ""}>${label}</option>`).join("")}
         </select>
-        <button class="secondary fit check-paint" data-id="${item.id}">${item.checked ? "Controllato" : "Segna controllato"}</button>
+        ${mismatch ? `<label class="paint-correct-label">Verniciatore corretto<select class="paint-correct-select" data-id="${item.id}">${painters.map((value) => `<option value="${value}" ${value === expected ? "selected" : ""}>${value}</option>`).join("")}</select></label>` : ""}
+        <button class="secondary fit check-paint" data-id="${item.id}">${mismatch ? "Approva con correzione" : (item.checked ? "Controllato" : "Segna controllato")}</button>
         <button class="danger fit delete-paint" data-id="${item.id}">Elimina</button>
       </div>
     </div>`;
@@ -273,7 +274,10 @@ function adminView() { return `${titleBlock("Amministrazione")}<div class="dashb
 function bindView() {
   document.querySelector("#new-client")?.addEventListener("click", newClientModal); document.querySelectorAll(".paint-filter").forEach((button) => button.onclick = () => { state.paintFilter = button.dataset.paintFilter || "all"; state.view = "painting"; renderAdmin(); }); document.querySelectorAll(".kpi-action:not(.paint-filter)").forEach((button) => button.onclick = () => { state.quickFilter = button.dataset.filter || ""; state.view = "clients"; renderAdmin(); });
   document.querySelectorAll(".open-client").forEach((button) => button.onclick = () => { state.selectedId = button.dataset.client; state.view = "clients"; renderAdmin(); });
-  document.querySelectorAll(".check-paint").forEach((button) => button.onclick = () => markPaintingChecked(button.dataset.id));
+  document.querySelectorAll(".check-paint").forEach((button) => button.onclick = () => {
+    const correction = document.querySelector(`.paint-correct-select[data-id="${button.dataset.id}"]`)?.value || "";
+    markPaintingChecked(button.dataset.id, correction);
+  });
   document.querySelectorAll(".delete-paint").forEach((button) => button.onclick = () => deletePaintingDelivery(button.dataset.id));
   document.querySelectorAll(".paint-status-select").forEach((select) => select.onchange = () => updatePaintingStatus(select.dataset.id, select.value));
   document.querySelectorAll(".client-row").forEach((button) => button.onclick = () => { state.selectedId = button.dataset.id; renderAdmin(); });
@@ -378,20 +382,25 @@ async function syncPaintingDeliveryToJob(delivery) {
   await logAction("job", job.id, "painting_sync", `Aggiornata scheda da movimento verniciatura ${delivery.job_code || delivery.client_name || ""}`);
   return { synced: true, message: "Movimento controllato e scheda cliente aggiornata." };
 }
-async function markPaintingChecked(id) {
+async function markPaintingChecked(id, correctedPainter = "") {
   const delivery = state.paintDeliveries.find((item) => String(item.id) === String(id));
-  const check = paintingMismatch(delivery);
+  if (!delivery) return notice("Movimento non trovato.", "error");
+  const normalizedCorrection = normalizePainter(correctedPainter);
+  let deliveryForCheck = delivery;
+  if (normalizedCorrection) deliveryForCheck = { ...delivery, painter: normalizedCorrection };
+  const check = paintingMismatch(deliveryForCheck);
   if (check.mismatch) {
     const { error } = await supabase.from("painting_deliveries").update({ checked: false, updated_at: new Date().toISOString() }).eq("id", id);
     if (error) return notice(error.message, "error");
-    return notice(`ATTENZIONE: commessa prevista per ${check.expected}, ma portata a ${check.actual}. Resta da controllare.`, "error");
+    return notice(`ATTENZIONE: previsto ${check.expected}, selezionato ${check.actual}. Scegli il verniciatore corretto e poi approva.`, "error");
   }
   const patch = { checked: true, checked_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  if (normalizedCorrection) patch.painter = normalizedCorrection;
   const { data, error } = await supabase.from("painting_deliveries").update(patch).eq("id", id).select().single();
   if (error) return notice(error.message, "error");
   try {
     const result = await syncPaintingDeliveryToJob(data || { ...delivery, ...patch });
-    await logAction("painting_delivery", id, "checked", "Consegna in verniciatura controllata");
+    await logAction("painting_delivery", id, "checked", `Consegna in verniciatura controllata${normalizedCorrection ? ` con verniciatore corretto ${normalizedCorrection}` : ""}`);
     notice(result.message, result.synced ? "ok" : "error");
   } catch (error) {
     notice(error.message || "Consegna controllata, ma scheda cliente non aggiornata.", "error");
