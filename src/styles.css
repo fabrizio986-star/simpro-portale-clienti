@@ -6,3 +6,7 @@
 .payment-notice>span{font-size:22px}.payment-notice small{display:block;font-size:10px;letter-spacing:1px;font-weight:800;color:#8b6c00}.payment-notice strong{display:block;margin-top:3px;font-size:13px;line-height:1.35}
 .whatsapp-contact{display:flex;width:max-content;max-width:100%;align-items:center;justify-content:center;gap:8px;margin:26px auto 0;padding:13px 18px;background:#1f9d56;color:#fff;text-decoration:none;font-weight:800;box-shadow:0 8px 22px #1f9d5624}.whatsapp-contact:hover{background:#188548}
 .status-in_attesa_cliente{background:linear-gradient(135deg,#fff8df,#ffffff);border-color:#f0d681}
+
+.kpi-action{border:1px solid var(--line);text-align:left;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease}
+.kpi-action:hover{transform:translateY(-2px);border-color:#f0b3b8;box-shadow:0 10px 28px #1a232c14}
+.kpi-action:focus-visible{outline:3px solid #d9232e30;outline-offset:2px}
