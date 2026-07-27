@@ -41,6 +41,14 @@ function loginPage() {
   };
 }
 
+function photoButton(item) {
+  if (!item.photo_url) return "";
+  return `<a class="foreman-photo-link" href="${esc(item.photo_url)}" target="_blank" rel="noopener">
+    <span>Foto autista</span>
+    <img src="${esc(item.photo_url)}" alt="Foto caricata dall'autista">
+  </a>`;
+}
+
 function row(item) {
   const search = [item.client_name, item.job_code, item.job_title, item.current_step_label, item.expected_painter, item.delivery_painter, item.painting_status_label].join(" ").toLowerCase();
   const warn = item.painter_mismatch || item.needs_check;
@@ -50,6 +58,7 @@ function row(item) {
   return `<article class="foreman-row" data-search="${esc(search)}">
     <div><strong>${esc(item.client_name || "Cliente")}</strong><span>${esc(item.job_code || "Senza codice")} · ${esc(item.job_title || "Lavorazione")}</span><small>Stato: ${esc(item.current_step_label || "Non indicato")} · Priorita: ${esc(item.priority_label || "Normale")}</small></div>
     <div class="foreman-paint ${warn ? "warn" : ""}"><small>Verniciatura</small><b>${esc(painterText)}</b><span>${esc(statusLabel(item.painting_status_label))}</span>${item.painter_mismatch ? `<em>ATTENZIONE: previsto ${esc(expected)}, portato a ${esc(delivered)}</em>` : ""}${item.needs_check && !item.painter_mismatch ? "<em>Da controllare</em>" : ""}</div>
+    <div class="foreman-photo-cell">${photoButton(item)}</div>
     <div class="foreman-date"><small>Aggiornato</small><b>${formatDate(item.updated_at)}</b></div>
   </article>`;
 }
@@ -64,7 +73,7 @@ function painterBoard(items) {
       return `<button class="painter-lane-card foreman-filter ${warn ? "attention" : ""}" type="button" data-filter="${esc(painter)}">
         <strong>${esc(item.client_name || "Cliente")}</strong>
         <small>${esc(item.job_code || "Senza codice")} · ${esc(item.job_title || "Lavorazione")}</small>
-        <small>${esc(statusLabel(item.painting_status_label))}</small>
+        <small>${esc(statusLabel(item.painting_status_label))}${item.photo_url ? " · Foto presente" : ""}</small>
         ${item.painter_mismatch ? `<b>Errore: previsto ${esc(expected)}, portato a ${esc(delivered)}</b>` : item.needs_check ? "<b>Da controllare</b>" : "<span>OK</span>"}
       </button>`;
     }).join("");
