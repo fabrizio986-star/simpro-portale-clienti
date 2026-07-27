@@ -234,6 +234,24 @@ function paintingView() {
     return true;
   });
   const paintKpi = (label, value, icon, filter, danger = false) => `<button class="kpi kpi-action paint-filter ${danger ? "danger" : ""} ${activeFilter === filter ? "active" : ""}" data-paint-filter="${esc(filter)}" type="button"><span>${icon}</span><div><small>${esc(label)}</small><strong>${value}</strong></div></button>`;
+  const painterLaneItems = painters.map((painter) => {
+    const laneRows = rows.filter((item) => normalizePainter(item.painter) === painter && (item.material_status || "consegnato") !== "rientrato");
+    const cards = laneRows.slice(0, 8).map((item) => {
+      const check = paintingMismatch(item);
+      const status = statusLabel(item.material_status);
+      return `<button class="painter-lane-card paint-filter ${check.mismatch || !item.checked ? "attention" : ""}" type="button" data-paint-filter="painter:${esc(painter)}">
+        <strong>${esc(item.client_name || "Cliente")}</strong>
+        <small>${esc(item.job_code || "Senza codice")} · ${esc(status)}</small>
+        ${check.mismatch ? `<b>Errore: previsto ${esc(check.expected)}, inserito ${esc(check.actual)}</b>` : (!item.checked ? `<b>Da controllare</b>` : `<span>Controllato</span>`)}
+      </button>`;
+    }).join("");
+    return `<article class="painter-lane">
+      <button class="painter-lane-head paint-filter" type="button" data-paint-filter="painter:${esc(painter)}">
+        <span>${esc(painter)}</span><strong>${laneRows.length}</strong>
+      </button>
+      <div class="painter-lane-list">${cards || `<div class="empty small"><p>Nessun materiale aperto.</p></div>`}</div>
+    </article>`;
+  }).join("");
   const items = filteredRows.map((item) => {
     const check = paintingMismatch(item);
     const related = check.job;
@@ -273,6 +291,7 @@ function paintingView() {
       ${byPainter.map(([label, value]) => paintKpi(label, value, "▦", `painter:${label}`)).join("")}
     </div>
     <section class="panel painting-control"><div class="panel-title"><h2>Controllo verniciatura</h2><span>${controlRows.length}</span></div>${controlRows.length ? controlPreview : `<div class="empty small"><p>Nessun controllo aperto.</p></div>`}</section>
+    <section class="panel painter-board"><div class="panel-title"><h2>Vista per verniciatore</h2><span>Materiale aperto</span></div><div class="painter-lanes">${painterLaneItems}</div></section>
     <section class="panel"><div class="panel-title"><h2>Materiale in verniciatura</h2><span>${esc(filterLabels[activeFilter] || "Tutti")} · ${filteredRows.length}</span></div>${filteredRows.length ? items : `<div class="empty small"><p>Nessun movimento per questo filtro.</p></div>`}</section>`;
 }
 function statsView() {
