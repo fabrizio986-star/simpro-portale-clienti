@@ -6,7 +6,19 @@ const SUPABASE_KEY = "sb_publishable_RdYwFepv4SzTxHg2jiEVVg_nYFfQKxs";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const root = document.querySelector("#root");
 const painters = ["DAMAS", "SOSAM", "METALLIKA", "GALLO"];
+const paintStatuses = {
+  da_portare: "Da portare",
+  in_viaggio: "In viaggio",
+  consegnato: "Consegnato al verniciatore",
+  ritirato: "Ritirato dal verniciatore",
+  rientrato: "Rientrato in officina",
+  previsto: "Previsto da scheda",
+  "non assegnato": "Non assegnato"
+};
 const esc = (value = "") => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
+const normalizePainter = (value = "") => String(value || "").trim().toUpperCase();
+const painterFor = (item) => normalizePainter(item.delivery_painter || item.expected_painter);
+const statusLabel = (value) => paintStatuses[value || ""] || value || "Non assegnato";
 const formatDate = (value) => value ? new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" }).format(new Date(value)) : "-";
 const logo = () => '<a class="brand" href="./" aria-label="SIMPRO Lamiere"><img src="https://www.simprolamiere.it/wp-content/uploads/2024/07/logo-simpro-128x128.png" alt="SIMPRO Lamiere"></a>';
 let rows = [];
@@ -32,18 +44,39 @@ function loginPage() {
 function row(item) {
   const search = [item.client_name, item.job_code, item.job_title, item.current_step_label, item.expected_painter, item.delivery_painter, item.painting_status_label].join(" ").toLowerCase();
   const warn = item.painter_mismatch || item.needs_check;
+  const expected = normalizePainter(item.expected_painter);
+  const delivered = normalizePainter(item.delivery_painter);
+  const painterText = delivered ? `Portato a ${delivered}` : expected ? `Previsto ${expected}` : "Non assegnato";
   return `<article class="foreman-row" data-search="${esc(search)}">
     <div><strong>${esc(item.client_name || "Cliente")}</strong><span>${esc(item.job_code || "Senza codice")} · ${esc(item.job_title || "Lavorazione")}</span><small>Stato: ${esc(item.current_step_label || "Non indicato")} · Priorita: ${esc(item.priority_label || "Normale")}</small></div>
-    <div class="foreman-paint ${warn ? "warn" : ""}"><small>Verniciatura</small><b>${esc(item.painting_status_label || "Non assegnato")}</b>${item.painter_mismatch ? `<em>ATTENZIONE: previsto ${esc(item.expected_painter)}, portato a ${esc(item.delivery_painter)}</em>` : ""}</div>
+    <div class="foreman-paint ${warn ? "warn" : ""}"><small>Verniciatura</small><b>${esc(painterText)}</b><span>${esc(statusLabel(item.painting_status_label))}</span>${item.painter_mismatch ? `<em>ATTENZIONE: previsto ${esc(expected)}, portato a ${esc(delivered)}</em>` : ""}${item.needs_check && !item.painter_mismatch ? "<em>Da controllare</em>" : ""}</div>
     <div class="foreman-date"><small>Aggiornato</small><b>${formatDate(item.updated_at)}</b></div>
   </article>`;
+}
+
+function painterBoard(items) {
+  return `<section class="panel painter-board"><div class="panel-title"><h2>Vista per verniciatore</h2><span>${items.length}</span></div><div class="painter-lanes">${painters.map((painter) => {
+    const laneRows = items.filter((item) => painterFor(item) === painter && statusLabel(item.painting_status_label) !== "Rientrato in officina");
+    const cards = laneRows.slice(0, 10).map((item) => {
+      const warn = item.painter_mismatch || item.needs_check;
+      const expected = normalizePainter(item.expected_painter);
+      const delivered = normalizePainter(item.delivery_painter);
+      return `<button class="painter-lane-card foreman-filter ${warn ? "attention" : ""}" type="button" data-filter="${esc(painter)}">
+        <strong>${esc(item.client_name || "Cliente")}</strong>
+        <small>${esc(item.job_code || "Senza codice")} · ${esc(item.job_title || "Lavorazione")}</small>
+        <small>${esc(statusLabel(item.painting_status_label))}</small>
+        ${item.painter_mismatch ? `<b>Errore: previsto ${esc(expected)}, portato a ${esc(delivered)}</b>` : item.needs_check ? "<b>Da controllare</b>" : "<span>OK</span>"}
+      </button>`;
+    }).join("");
+    return `<article class="painter-lane"><button class="painter-lane-head foreman-filter" type="button" data-filter="${esc(painter)}"><span>${esc(painter)}</span><strong>${laneRows.length}</strong></button><div class="painter-lane-list">${cards || '<div class="empty small"><p>Nessun materiale aperto.</p></div>'}</div></article>`;
+  }).join("")}</div></section>`;
 }
 
 function render() {
   const inPainting = rows.filter((item) => item.has_painting || item.expected_painter || item.current_step === "verniciatura");
   const checks = rows.filter((item) => item.needs_check);
   const errors = rows.filter((item) => item.painter_mismatch);
-  root.innerHTML = `<header class="topbar">${logo()}<div class="account"><span><small>Capofficina</small><strong>SIMPRO Lamiere</strong></span><button id="logout">Esci</button></div></header><main class="foreman-page"><section class="admin-title foreman-title"><div><span class="eyebrow red">AREA CAPOFFICINA</span><h1>Stato clienti e verniciatura</h1></div><button class="secondary fit" id="refresh">Aggiorna</button></section><div class="kpi-grid foreman-kpis"><div class="kpi"><span>⚙</span><div><small>Lavorazioni</small><strong>${rows.length}</strong></div></div><div class="kpi"><span>🎨</span><div><small>In verniciatura</small><strong>${inPainting.length}</strong></div></div><div class="kpi ${checks.length ? "danger" : ""}"><span>!</span><div><small>Da controllare</small><strong>${checks.length}</strong></div></div><div class="kpi ${errors.length ? "danger" : ""}"><span>!</span><div><small>Errori verniciatore</small><strong>${errors.length}</strong></div></div></div><section class="panel foreman-search-panel"><label>Cerca cliente o commessa<input id="search" type="search" placeholder="Nome cliente, codice commessa, verniciatore..."></label><div class="foreman-filters"><button class="secondary fit foreman-filter active" data-filter="all" type="button">Tutto</button><button class="secondary fit foreman-filter" data-filter="painting" type="button">Solo verniciatura</button><button class="secondary fit foreman-filter" data-filter="errors" type="button">Da controllare/errori</button>${painters.map((p) => `<button class="secondary fit foreman-filter" data-filter="${p}" type="button">${p}</button>`).join("")}</div></section><section class="foreman-list">${rows.map(row).join("") || '<div class="empty"><p>Nessuna lavorazione presente.</p></div>'}</section></main>`;
+  root.innerHTML = `<header class="topbar">${logo()}<div class="account"><span><small>Capofficina</small><strong>SIMPRO Lamiere</strong></span><button id="logout">Esci</button></div></header><main class="foreman-page"><section class="admin-title foreman-title"><div><span class="eyebrow red">AREA CAPOFFICINA</span><h1>Stato clienti e verniciatura</h1></div><button class="secondary fit" id="refresh">Aggiorna</button></section><div class="kpi-grid foreman-kpis"><div class="kpi"><span>⚙</span><div><small>Lavorazioni</small><strong>${rows.length}</strong></div></div><div class="kpi"><span>🎨</span><div><small>In verniciatura</small><strong>${inPainting.length}</strong></div></div><div class="kpi ${checks.length ? "danger" : ""}"><span>!</span><div><small>Da controllare</small><strong>${checks.length}</strong></div></div><div class="kpi ${errors.length ? "danger" : ""}"><span>!</span><div><small>Errori verniciatore</small><strong>${errors.length}</strong></div></div></div>${painterBoard(inPainting)}<section class="panel foreman-search-panel"><label>Cerca cliente o commessa<input id="search" type="search" placeholder="Nome cliente, codice commessa, verniciatore..."></label><div class="foreman-filters"><button class="secondary fit foreman-filter active" data-filter="all" type="button">Tutto</button><button class="secondary fit foreman-filter" data-filter="painting" type="button">Solo verniciatura</button><button class="secondary fit foreman-filter" data-filter="errors" type="button">Da controllare/errori</button>${painters.map((p) => `<button class="secondary fit foreman-filter" data-filter="${p}" type="button">${p}</button>`).join("")}</div></section><section class="foreman-list">${rows.map(row).join("") || '<div class="empty"><p>Nessuna lavorazione presente.</p></div>'}</section></main>`;
   let active = "all";
   const apply = () => {
     const q = String(document.querySelector("#search").value || "").toLowerCase().trim();
