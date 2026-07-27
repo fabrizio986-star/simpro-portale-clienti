@@ -69,3 +69,7 @@
 
 .paint-filter.active{border-color:var(--red);box-shadow:0 0 0 3px #d9232e18;background:#fff5f6}
 .paint-filter.active small,.paint-filter.active strong{color:var(--red)}
+
+.paint-warning{display:inline-block;color:#a9141e!important;font-weight:800;background:#fff0f1;border:1px solid #f1b5ba;border-radius:7px;padding:6px 8px}
+.paint-row.mismatch{border-color:#d9232e;background:#fff7f7;box-shadow:0 0 0 3px #d9232e12}
+.paint-row.mismatch .paint-actions .secondary{border-color:#d9232e;color:#a9141e}
