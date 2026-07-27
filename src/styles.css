@@ -106,3 +106,20 @@
 .painting-control-row b{color:var(--red);font-size:12px}
 .driver-card label small{font-weight:400;color:#7d8791;line-height:1.35}
 @media(max-width:600px){.painting-control-row{display:grid}.painting-control-row b{justify-self:start}}
+
+.painter-board{margin-bottom:18px}
+.painter-lanes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.painter-lane{border:1px solid var(--line);border-radius:10px;background:#f8fafb;overflow:hidden;min-width:0}
+.painter-lane-head{width:100%;border:0;border-bottom:1px solid var(--line);background:#fff;padding:12px;display:flex;justify-content:space-between;align-items:center;font-weight:800;text-align:left}
+.painter-lane-head span{color:var(--ink)}
+.painter-lane-head strong{background:#eef1f3;border-radius:99px;padding:5px 9px;color:var(--red)}
+.painter-lane-list{display:grid;gap:8px;padding:10px}
+.painter-lane-card{width:100%;border:1px solid var(--line);border-radius:9px;background:#fff;text-align:left;padding:10px;display:grid;gap:5px}
+.painter-lane-card:hover{border-color:#f0b3b8;background:#fff5f6}
+.painter-lane-card strong{font-size:13px;line-height:1.25}
+.painter-lane-card small{color:#7d8791;line-height:1.35}
+.painter-lane-card b{color:#a9141e;font-size:11px}
+.painter-lane-card span{color:var(--green);font-size:11px;font-weight:800}
+.painter-lane-card.attention{border-color:#d9232e;background:#fff7f7}
+@media(max-width:1100px){.painter-lanes{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.painter-lanes{grid-template-columns:1fr}}
