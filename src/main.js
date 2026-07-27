@@ -71,6 +71,11 @@ function paintingMismatch(delivery) {
   const actual = normalizePainter(delivery?.painter);
   return { job, expected, actual, mismatch: Boolean(expected && actual && expected !== actual) };
 }
+function deliveryPainterFor(delivery) {
+  const direct = normalizePainter(delivery?.painter);
+  if (direct) return direct;
+  return normalizePainter(expectedPaintingJob(delivery)?.painter);
+}
 async function compressImage(file, maxSize = 1600, quality = 0.78) {
   const originalName = String(file.name || "foto.jpg");
   const name = originalName.toLowerCase();
@@ -220,7 +225,7 @@ function paintingView() {
   const uncheckedRows = rows.filter((item) => !item.checked || paintingMismatch(item).mismatch);
   const noPhotoRows = rows.filter((item) => !item.photo_url);
   const controlRows = [...new Map([...mismatchRows, ...uncheckedRows, ...noPhotoRows].map((item) => [item.id, item])).values()];
-  const byPainter = painters.map((painter) => [painter, rows.filter((item) => normalizePainter(item.painter) === painter && (item.material_status || "consegnato") !== "rientrato").length]);
+  const byPainter = painters.map((painter) => [painter, rows.filter((item) => deliveryPainterFor(item) === painter && (item.material_status || "consegnato") !== "rientrato").length]);
   const statusLabel = (value) => paintStatuses[value || "consegnato"] || "Consegnato al verniciatore";
   const activeFilter = state.paintFilter || "all";
   const filterLabels = { all: "Tutti", open: "Movimenti aperti", unchecked: "Da controllare", mismatch: "Errore verniciatore", no_photo: "Senza foto", ...Object.fromEntries(painters.map((painter) => [`painter:${painter}`, painter])) };
@@ -230,12 +235,12 @@ function paintingView() {
     if (activeFilter === "unchecked") return !item.checked || paintingMismatch(item).mismatch;
     if (activeFilter === "mismatch") return paintingMismatch(item).mismatch;
     if (activeFilter === "no_photo") return !item.photo_url;
-    if (activeFilter.startsWith("painter:")) return normalizePainter(item.painter) === normalizePainter(activeFilter.replace("painter:", ""));
+    if (activeFilter.startsWith("painter:")) return deliveryPainterFor(item) === normalizePainter(activeFilter.replace("painter:", ""));
     return true;
   });
   const paintKpi = (label, value, icon, filter, danger = false) => `<button class="kpi kpi-action paint-filter ${danger ? "danger" : ""} ${activeFilter === filter ? "active" : ""}" data-paint-filter="${esc(filter)}" type="button"><span>${icon}</span><div><small>${esc(label)}</small><strong>${value}</strong></div></button>`;
   const painterLaneItems = painters.map((painter) => {
-    const laneRows = rows.filter((item) => normalizePainter(item.painter) === painter && (item.material_status || "consegnato") !== "rientrato");
+    const laneRows = rows.filter((item) => deliveryPainterFor(item) === painter && (item.material_status || "consegnato") !== "rientrato");
     const cards = laneRows.slice(0, 8).map((item) => {
       const check = paintingMismatch(item);
       const status = statusLabel(item.material_status);
@@ -261,7 +266,7 @@ function paintingView() {
       ${item.photo_url ? `<a class="paint-photo" href="${esc(item.photo_url)}" target="_blank" rel="noopener"><img src="${esc(item.photo_url)}" alt="Foto verniciatura"></a>` : `<div class="paint-photo empty-photo">No foto</div>`}
       <span>
         <strong>${esc(item.client_name)}${item.job_code ? ` · ${esc(item.job_code)}` : ""}</strong>
-        <small><b>${esc(statusLabel(item.material_status))}</b> · ${esc(item.painter)} · ${formatDate(item.created_at)}</small>
+        <small><b>${esc(statusLabel(item.material_status))}</b> · ${esc(deliveryPainterFor(item) || item.painter || "Verniciatore non indicato")} · ${formatDate(item.created_at)}</small>
         ${item.driver_name ? `<small>Autista: ${esc(item.driver_name)}</small>` : ""}
         ${item.notes ? `<small>Note: ${esc(item.notes)}</small>` : ""}
         ${expected ? `<small class="${mismatch ? "paint-warning" : ""}">${mismatch ? "ATTENZIONE: " : ""}Previsto: ${esc(expected)} · Portato: ${esc(item.painter || "-")}${mismatch ? " - DA CONTROLLARE" : " - corretto"}</small>` : `<small>Nessun verniciatore assegnato nella scheda cliente.</small>`}
