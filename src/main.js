@@ -250,6 +250,7 @@ function paintingView() {
           ${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${(item.material_status || "consegnato") === key ? "selected" : ""}>${label}</option>`).join("")}
         </select>
         <button class="secondary fit check-paint" data-id="${item.id}">${item.checked ? "Controllato" : "Segna controllato"}</button>
+        <button class="danger fit delete-paint" data-id="${item.id}">Elimina</button>
       </div>
     </div>`;
   }).join("");
@@ -273,6 +274,7 @@ function bindView() {
   document.querySelector("#new-client")?.addEventListener("click", newClientModal); document.querySelectorAll(".paint-filter").forEach((button) => button.onclick = () => { state.paintFilter = button.dataset.paintFilter || "all"; state.view = "painting"; renderAdmin(); }); document.querySelectorAll(".kpi-action:not(.paint-filter)").forEach((button) => button.onclick = () => { state.quickFilter = button.dataset.filter || ""; state.view = "clients"; renderAdmin(); });
   document.querySelectorAll(".open-client").forEach((button) => button.onclick = () => { state.selectedId = button.dataset.client; state.view = "clients"; renderAdmin(); });
   document.querySelectorAll(".check-paint").forEach((button) => button.onclick = () => markPaintingChecked(button.dataset.id));
+  document.querySelectorAll(".delete-paint").forEach((button) => button.onclick = () => deletePaintingDelivery(button.dataset.id));
   document.querySelectorAll(".paint-status-select").forEach((select) => select.onchange = () => updatePaintingStatus(select.dataset.id, select.value));
   document.querySelectorAll(".client-row").forEach((button) => button.onclick = () => { state.selectedId = button.dataset.id; renderAdmin(); });
   const applyFilters = () => { const text = document.querySelector("#filter-text")?.value.toLowerCase() || ""; const status = document.querySelector("#filter-status")?.value || ""; const priority = document.querySelector("#filter-priority")?.value || ""; const workflow = document.querySelector("#filter-workflow")?.value || ""; const painter = document.querySelector("#filter-painter")?.value || ""; document.querySelectorAll(".client-row").forEach((row) => { const statusOk = !status || status === "all" || (status === "ready" && row.dataset.ready === "true") || (status === "updated_today" && row.dataset.updatedToday === "true") || (status === "overdue" && row.dataset.overdue === "true") || (status === "active" && row.dataset.active === "true"); row.hidden = !(row.dataset.search.includes(text) && (!priority || row.dataset.priorities.includes(priority)) && (!workflow || row.dataset.workflows.includes(workflow)) && (!painter || row.dataset.painters.includes(painter)) && statusOk); }); };
@@ -413,6 +415,22 @@ async function updatePaintingStatus(id, material_status) {
   }
   adminPage();
 }
+async function deletePaintingDelivery(id) {
+  const delivery = state.paintDeliveries.find((item) => String(item.id) === String(id));
+  if (!delivery) return notice("Movimento non trovato.", "error");
+  const label = [delivery.client_name, delivery.job_code, delivery.painter].filter(Boolean).join(" · ");
+  if (!confirm(`Eliminare questo movimento dell'autista?\n\n${label || "Movimento verniciatura"}`)) return;
+  if (delivery.photo_storage_path) {
+    await supabase.storage.from("job-photos").remove([delivery.photo_storage_path]);
+    await supabase.from("job_photos").delete().eq("storage_path", delivery.photo_storage_path);
+  }
+  const { error } = await supabase.from("painting_deliveries").delete().eq("id", id);
+  if (error) return notice(error.message, "error");
+  await logAction("painting_delivery", id, "delete", `Eliminato movimento autista ${label || id}`);
+  notice("Movimento eliminato.");
+  adminPage();
+}
+
 async function regenerateLink(clientId) { if (!confirm("Il vecchio link smetterà immediatamente di funzionare. Continuare?")) return; const token = crypto.randomUUID(); const { error } = await supabase.from("clients").update({ access_token: token }).eq("id", clientId); if (error) return notice(error.message, "error"); await navigator.clipboard.writeText(clientLink(token)); await logAction("client", clientId, "link", "Rigenerato link personale cliente"); notice("Nuovo link generato e copiato."); adminPage(); }
 
 async function driverPage() {
