@@ -55,18 +55,23 @@ const paintStatuses = {
   rientrato: "Rientrato in officina"
 };
 async function compressImage(file, maxSize = 1600, quality = 0.78) {
-  const name = String(file.name || "").toLowerCase();
+  const originalName = String(file.name || "foto.jpg");
+  const name = originalName.toLowerCase();
   const type = String(file.type || "").toLowerCase();
   const supported = ["image/jpeg", "image/png", "image/webp", "image/gif"];
   const extensionOk = /\.(jpe?g|png|webp|gif)$/.test(name);
-  if (!type.startsWith("image/") && !extensionOk) throw new Error("Carica solo file immagine.");
+  if (!type.startsWith("image/") && !extensionOk) throw new Error("Carica solo file immagine JPG, PNG, WebP o GIF.");
   if (type.includes("heic") || type.includes("heif") || /\.(heic|heif)$/.test(name)) {
-    throw new Error("Formato HEIC non supportato. Usa una foto JPG/PNG oppure inviala prima su WhatsApp e ricaricala.");
+    throw new Error("Formato HEIC non supportato. Scatta in JPG oppure invia la foto su WhatsApp e ricarica il JPG.");
   }
   if (type && !supported.includes(type) && !extensionOk) {
     throw new Error("Formato foto non supportato. Usa JPG, PNG, WebP o GIF.");
   }
-  if (type === "image/gif" || file.size <= 1800000) return file;
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error("Foto troppo grande. Carica una foto sotto 10 MB.");
+  }
+  if (!file.size) throw new Error("La foto selezionata e vuota.");
+  if (file.size <= 10 * 1024 * 1024 && (type === "image/gif" || extensionOk)) return file;
   try {
     const image = await createImageBitmap(file);
     const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
@@ -76,7 +81,7 @@ async function compressImage(file, maxSize = 1600, quality = 0.78) {
     canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
     if (!blob) throw new Error("Non riesco a preparare la foto.");
-    return new File([blob], name.replace(/\.[^.]+$/, ".jpg") || "foto.jpg", { type: "image/jpeg" });
+    return new File([blob], originalName.replace(/\.[^.]+$/, ".jpg") || "foto.jpg", { type: "image/jpeg" });
   } catch (error) {
     throw new Error("La foto non puo essere letta dal browser. Usa una foto JPG o PNG.");
   }
@@ -84,12 +89,12 @@ async function compressImage(file, maxSize = 1600, quality = 0.78) {
 async function uploadJobPhoto(job, file, caption = "") {
   const prepared = await compressImage(file);
   const ext = prepared.type === "image/png" ? "png" : prepared.type === "image/webp" ? "webp" : "jpg";
-  const path = `${job.id}/${crypto.randomUUID()}.${ext}`;
+  const path = `jobs/${job.id}/${crypto.randomUUID()}.${ext}`;
   const { error: uploadError } = await supabase.storage.from("job-photos").upload(path, prepared, { contentType: prepared.type, cacheControl: "3600", upsert: false });
-  if (uploadError) throw new Error(uploadError.message || "Upload foto fallito.");
+  if (uploadError) throw new Error(`Upload foto fallito: ${uploadError.message || "permessi storage non validi"}.`);
   const url = publicPhotoUrl(path);
   const { error } = await supabase.from("job_photos").insert({ job_id: job.id, storage_path: path, url, caption });
-  if (error) throw new Error(error.message || "Foto caricata ma non salvata nella commessa.");
+  if (error) throw new Error(`Foto caricata ma non salvata nella commessa: ${error.message || "tabella job_photos non valida"}.`);
   return { path, url };
 }
 async function uploadPaintingPhoto(file, fallbackCode = "verniciatura") {
