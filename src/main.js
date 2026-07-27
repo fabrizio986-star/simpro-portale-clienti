@@ -416,17 +416,50 @@ async function updatePaintingStatus(id, material_status) {
 async function regenerateLink(clientId) { if (!confirm("Il vecchio link smetterà immediatamente di funzionare. Continuare?")) return; const token = crypto.randomUUID(); const { error } = await supabase.from("clients").update({ access_token: token }).eq("id", clientId); if (error) return notice(error.message, "error"); await navigator.clipboard.writeText(clientLink(token)); await logAction("client", clientId, "link", "Rigenerato link personale cliente"); notice("Nuovo link generato e copiato."); adminPage(); }
 
 async function driverPage() {
-  root.innerHTML = `<main class="driver-page"><section class="driver-card">${logo(false)}<span class="eyebrow red">ACCESSO AUTISTA</span><h1>Movimento verniciatura</h1><p>Inserisci dove si trova il materiale e controlla gli ultimi movimenti registrati.</p><form id="driver-form"><label>Codice cliente o commessa<input name="job_code" placeholder="Es. COM-2026-001"></label><label>Nome cliente<input name="client_name" required placeholder="Es. Rossi Srl"></label><label>Verniciatore<select name="painter" required><option value="">Seleziona</option>${painters.map((value) => `<option>${value}</option>`).join("")}</select></label><label>Stato materiale<select name="material_status" required>${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${key === "consegnato" ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Nome autista<input name="driver_name" placeholder="Facoltativo"></label><label>Foto commessa<input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"></label><label>Note<textarea name="notes" rows="3" placeholder="Facoltativo"></textarea></label><div id="driver-message" class="form-message"></div><button class="primary" type="submit">Registra movimento <span>→</span></button></form></section><section class="driver-card driver-situation"><div class="panel-title"><h2>Situazione materiale</h2><button class="secondary fit" id="driver-refresh" type="button">Aggiorna</button></div><div id="driver-list" class="driver-list"><div class="loading-inline">Caricamento movimenti...</div></div></section></main>`;
+  root.innerHTML = `<main class="driver-page"><section class="driver-card">${logo(false)}<span class="eyebrow red">ACCESSO AUTISTA</span><h1>Cerca commessa</h1><p>Cerca prima il cliente o il numero commessa, poi seleziona il lavoro corretto.</p><div class="driver-search"><label>Cerca cliente o commessa<input id="driver-search-input" type="search" placeholder="Es. Rossi, COM-2026-001"></label><div id="driver-search-results" class="driver-search-results"><div class="empty small"><p>Scrivi almeno 2 lettere o numeri per cercare.</p></div></div></div><form id="driver-form"><label>Codice cliente o commessa<input name="job_code" placeholder="Es. COM-2026-001"></label><label>Nome cliente<input name="client_name" required placeholder="Es. Rossi Srl"></label><label>Verniciatore<select name="painter" required><option value="">Seleziona</option>${painters.map((value) => `<option>${value}</option>`).join("")}</select></label><label>Stato materiale<select name="material_status" required>${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${key === "consegnato" ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Nome autista<input name="driver_name" placeholder="Facoltativo"></label><label>Foto commessa<input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"></label><label>Note<textarea name="notes" rows="3" placeholder="Facoltativo"></textarea></label><div id="driver-selected-job" class="driver-selected-job" hidden></div><div id="driver-message" class="form-message"></div><button class="primary" type="submit">Registra movimento <span>→</span></button></form></section><section class="driver-card driver-situation"><div class="panel-title"><h2>Situazione materiale</h2><button class="secondary fit" id="driver-refresh" type="button">Aggiorna</button></div><div id="driver-list" class="driver-list"><div class="loading-inline">Caricamento movimenti...</div></div></section></main>`;
+  let searchableJobs = [];
+  const form = document.querySelector("#driver-form");
+  const searchInput = document.querySelector("#driver-search-input");
+  const resultsNode = document.querySelector("#driver-search-results");
+  const selectedNode = document.querySelector("#driver-selected-job");
+
+  const renderSearchResults = (query = "") => {
+    const q = String(query || "").trim().toLowerCase();
+    if (q.length < 2) {
+      resultsNode.innerHTML = `<div class="empty small"><p>Scrivi almeno 2 lettere o numeri per cercare.</p></div>`;
+      return;
+    }
+    const matches = searchableJobs.filter((job) => [job.code, job.client_name, job.title, job.painter].some((value) => String(value || "").toLowerCase().includes(q))).slice(0, 20);
+    resultsNode.innerHTML = matches.length ? matches.map((job) => `<button class="driver-search-row" type="button" data-id="${esc(job.id)}"><strong>${esc(job.client_name || "Cliente non indicato")}</strong><span>${esc(job.code || "Senza codice")} · ${esc(job.title || "Lavorazione")}</span><small>Previsto: ${esc(job.painter || "vernicatore non assegnato")}</small></button>`).join("") : `<div class="empty small"><p>Nessuna commessa trovata. Puoi inserire i dati manualmente.</p></div>`;
+    resultsNode.querySelectorAll(".driver-search-row").forEach((button) => button.onclick = () => {
+      const job = searchableJobs.find((item) => String(item.id) === String(button.dataset.id));
+      if (!job) return;
+      form.job_code.value = job.code || "";
+      form.client_name.value = job.client_name || job.title || "";
+      if (job.painter && painters.includes(job.painter)) form.painter.value = job.painter;
+      selectedNode.hidden = false;
+      selectedNode.innerHTML = `<strong>Selezionato:</strong> ${esc(job.client_name || "Cliente")} · ${esc(job.code || "Senza codice")}<br><small>Verniciatore previsto: ${esc(job.painter || "non assegnato")}</small>`;
+      resultsNode.innerHTML = `<div class="form-message ok">Commessa selezionata. Controlla verniciatore e stato materiale.</div>`;
+    });
+  };
+
   const loadDriverDeliveries = async () => {
     const list = document.querySelector("#driver-list");
     const { data, error } = await supabase.from("painting_deliveries").select("*").order("created_at", { ascending: false }).limit(80);
     list.innerHTML = error ? `<div class="form-message error">Non riesco a caricare la situazione. Avvisa l'ufficio.</div>` : driverSituationList(data || []);
   };
+
   document.querySelector("#driver-refresh").onclick = loadDriverDeliveries;
+  searchInput.oninput = () => renderSearchResults(searchInput.value);
+  const { data: jobsData, error: jobsError } = await supabase.rpc("driver_search_jobs");
+  if (jobsError) {
+    resultsNode.innerHTML = `<div class="form-message error">Ricerca non ancora attiva. Avvisa l'ufficio.</div>`;
+  } else {
+    searchableJobs = Array.isArray(jobsData) ? jobsData : [];
+  }
   await loadDriverDeliveries();
   document.querySelector("#driver-form").onsubmit = async (event) => {
     event.preventDefault();
-    const form = event.target;
     const data = Object.fromEntries(new FormData(form));
     data.job_code = String(data.job_code || "").trim(); data.client_name = String(data.client_name || "").trim(); data.driver_name = String(data.driver_name || "").trim(); data.notes = String(data.notes || "").trim();
     delete data.photo;
@@ -436,7 +469,7 @@ async function driverPage() {
       if (file) Object.assign(data, await uploadPaintingPhoto(file, data.job_code || data.client_name));
       const { error } = await supabase.from("painting_deliveries").insert(data);
       if (error) throw new Error(error.message);
-      form.reset(); message.textContent = "Movimento registrato correttamente."; message.className = "form-message ok"; await loadDriverDeliveries();
+      form.reset(); selectedNode.hidden = true; searchInput.value = ""; renderSearchResults(""); message.textContent = "Movimento registrato correttamente."; message.className = "form-message ok"; await loadDriverDeliveries();
     } catch (error) {
       message.textContent = `Errore: ${error.message || "movimento non registrato"}. Avvisa l'ufficio.`; message.className = "form-message error";
     }
