@@ -13,7 +13,6 @@ const SUPABASE_KEY = "sb_publishable_RdYwFepv4SzTxHg2jiEVVg_nYFfQKxs";
 const CLIENT_PORTAL_URL = window.location.hostname === "clienti.simprolamiere.it" ? "https://clienti.simprolamiere.it/" : new URL("./", window.location.href).toString();
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const root = document.querySelector("#root");
-// capofficina portal marker
 
 const completeSteps = [
   { key: "materiale_ordinato", label: "Materiale ordinato", icon: "📦", description: "Il materiale necessario è stato ordinato." },
