@@ -310,8 +310,85 @@ function bindPhotoManager(job) {
   });
 }
 async function markReminderHandled(id) { const { error } = await supabase.from("client_reminders").update({ handled: true, handled_at: new Date().toISOString() }).eq("id", id); if (error) return notice(error.message, "error"); await logAction("reminder", id, "handled", "Sollecito cliente segnato come gestito"); notice("Sollecito segnato come gestito."); adminPage(); }
-async function markPaintingChecked(id) { const { error } = await supabase.from("painting_deliveries").update({ checked: true, checked_at: new Date().toISOString() }).eq("id", id); if (error) return notice(error.message, "error"); await logAction("painting_delivery", id, "checked", "Consegna in verniciatura controllata"); notice("Consegna segnata come controllata."); adminPage(); }
-async function updatePaintingStatus(id, material_status) { const patch = { material_status, updated_at: new Date().toISOString() }; if (material_status === "rientrato") { patch.checked = true; patch.checked_at = new Date().toISOString(); } const { error } = await supabase.from("painting_deliveries").update(patch).eq("id", id); if (error) return notice(error.message, "error"); await logAction("painting_delivery", id, "status", `Stato verniciatura aggiornato: ${paintStatuses[material_status] || material_status}`); notice("Stato verniciatura aggiornato."); adminPage(); }
+function findPaintingJob(delivery) {
+  const code = String(delivery?.job_code || "").trim().toLowerCase();
+  const client = String(delivery?.client_name || "").trim().toLowerCase();
+  if (code) {
+    const exact = state.jobs.find((job) => String(job.code || "").trim().toLowerCase() === code);
+    if (exact) return exact;
+  }
+  if (client) return state.jobs.find((job) => String(job.title || "").toLowerCase().includes(client) || String(job.code || "").toLowerCase().includes(client));
+  return null;
+}
+function paintingJobPatch(job, delivery) {
+  const materialStatus = delivery.material_status || "consegnato";
+  const patch = {
+    painter: delivery.painter || job.painter || null,
+    has_painting: true,
+    updated_at: new Date().toISOString()
+  };
+  if (materialStatus === "rientrato") patch.current_step = job.workflow_type === "lamiere" ? "pronto_ritiro" : "arrivo_officina";
+  else if (["consegnato", "in_viaggio", "da_portare", "ritirato"].includes(materialStatus)) patch.current_step = "verniciatura";
+  const nextJob = { ...job, ...patch };
+  normalizeJobData(nextJob);
+  patch.current_step = nextJob.current_step;
+  patch.progress = nextJob.progress;
+  patch.phase = nextJob.phase;
+  const note = `Verniciatura: ${paintStatuses[materialStatus] || materialStatus} presso ${delivery.painter || "vernicatore non indicato"}${delivery.driver_name ? ` - autista ${delivery.driver_name}` : ""}${delivery.notes ? ` - note: ${delivery.notes}` : ""}`;
+  patch.admin_notes = [job.admin_notes, note].filter(Boolean).join("\n");
+  if (!job.note || String(job.note).includes("Verniciatura:")) patch.note = materialStatus === "rientrato" ? "Materiale rientrato dalla verniciatura." : `Materiale in verniciatura presso ${delivery.painter}.`;
+  return patch;
+}
+async function syncPaintingDeliveryToJob(delivery) {
+  const job = findPaintingJob(delivery);
+  if (!job) return { synced: false, message: "Movimento controllato, ma non ho trovato una commessa con quel codice." };
+  const patch = paintingJobPatch(job, delivery);
+  const { error } = await supabase.from("jobs").update(patch).eq("id", job.id);
+  if (error) throw new Error(`Movimento aggiornato, ma scheda cliente non aggiornata: ${error.message}`);
+  if (delivery.photo_url && delivery.photo_storage_path) {
+    const already = state.jobPhotos.some((photo) => photo.job_id === job.id && photo.storage_path === delivery.photo_storage_path);
+    if (!already) {
+      const { error: photoError } = await supabase.from("job_photos").insert({
+        job_id: job.id,
+        storage_path: delivery.photo_storage_path,
+        url: delivery.photo_url,
+        caption: `Foto verniciatura ${delivery.painter || ""}`.trim()
+      });
+      if (photoError) throw new Error(`Scheda aggiornata, ma foto non collegata: ${photoError.message}`);
+    }
+  }
+  await logAction("job", job.id, "painting_sync", `Aggiornata scheda da movimento verniciatura ${delivery.job_code || delivery.client_name || ""}`);
+  return { synced: true, message: "Movimento controllato e scheda cliente aggiornata." };
+}
+async function markPaintingChecked(id) {
+  const delivery = state.paintDeliveries.find((item) => String(item.id) === String(id));
+  const patch = { checked: true, checked_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const { data, error } = await supabase.from("painting_deliveries").update(patch).eq("id", id).select().single();
+  if (error) return notice(error.message, "error");
+  try {
+    const result = await syncPaintingDeliveryToJob(data || { ...delivery, ...patch });
+    await logAction("painting_delivery", id, "checked", "Consegna in verniciatura controllata");
+    notice(result.message, result.synced ? "ok" : "error");
+  } catch (error) {
+    notice(error.message || "Consegna controllata, ma scheda cliente non aggiornata.", "error");
+  }
+  adminPage();
+}
+async function updatePaintingStatus(id, material_status) {
+  const delivery = state.paintDeliveries.find((item) => String(item.id) === String(id));
+  const patch = { material_status, updated_at: new Date().toISOString() };
+  if (material_status === "rientrato") { patch.checked = true; patch.checked_at = new Date().toISOString(); }
+  const { data, error } = await supabase.from("painting_deliveries").update(patch).eq("id", id).select().single();
+  if (error) return notice(error.message, "error");
+  try {
+    const result = await syncPaintingDeliveryToJob(data || { ...delivery, ...patch });
+    await logAction("painting_delivery", id, "status", `Stato verniciatura aggiornato: ${paintStatuses[material_status] || material_status}`);
+    notice(result.synced ? "Stato verniciatura e scheda cliente aggiornati." : result.message, result.synced ? "ok" : "error");
+  } catch (error) {
+    notice(error.message || "Stato aggiornato, ma scheda cliente non aggiornata.", "error");
+  }
+  adminPage();
+}
 async function regenerateLink(clientId) { if (!confirm("Il vecchio link smetterà immediatamente di funzionare. Continuare?")) return; const token = crypto.randomUUID(); const { error } = await supabase.from("clients").update({ access_token: token }).eq("id", clientId); if (error) return notice(error.message, "error"); await navigator.clipboard.writeText(clientLink(token)); await logAction("client", clientId, "link", "Rigenerato link personale cliente"); notice("Nuovo link generato e copiato."); adminPage(); }
 
 async function driverPage() {
