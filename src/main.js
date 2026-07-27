@@ -47,6 +47,46 @@ const isOverdue = (job) => job.due_date && job.due_date < isoToday() && !isReady
 const stepsFor = (job) => (job.workflow_type === "lamiere" ? sheetSteps : completeSteps).filter((step) => !step.optional || Boolean(job[step.optional]));
 const stepFor = (job) => stepsFor(job).find((step) => step.key === job.current_step) || stepsFor(job)[0];
 const publicPhotoUrl = (path) => supabase.storage.from("job-photos").getPublicUrl(path).data.publicUrl;
+const paintStatuses = {
+  da_portare: "Da portare",
+  in_viaggio: "In viaggio",
+  consegnato: "Consegnato al verniciatore",
+  ritirato: "Ritirato dal verniciatore",
+  rientrato: "Rientrato in officina"
+};
+async function compressImage(file, maxSize = 1600, quality = 0.78) {
+  if (!file.type.startsWith("image/")) throw new Error("Carica solo file immagine.");
+  if (file.size <= 1800000) return file;
+  const image = await createImageBitmap(file);
+  const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+  canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+  if (!blob) throw new Error("Non riesco a preparare la foto.");
+  return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+}
+async function uploadJobPhoto(job, file, caption = "") {
+  const prepared = await compressImage(file);
+  const ext = prepared.type === "image/png" ? "png" : prepared.type === "image/webp" ? "webp" : "jpg";
+  const path = `${job.id}/${crypto.randomUUID()}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from("job-photos").upload(path, prepared, { contentType: prepared.type, cacheControl: "3600", upsert: false });
+  if (uploadError) throw new Error(uploadError.message || "Upload foto fallito.");
+  const url = publicPhotoUrl(path);
+  const { error } = await supabase.from("job_photos").insert({ job_id: job.id, storage_path: path, url, caption });
+  if (error) throw new Error(error.message || "Foto caricata ma non salvata nella commessa.");
+  return { path, url };
+}
+async function uploadPaintingPhoto(file, fallbackCode = "verniciatura") {
+  const prepared = await compressImage(file);
+  const ext = prepared.type === "image/png" ? "png" : prepared.type === "image/webp" ? "webp" : "jpg";
+  const safeCode = String(fallbackCode || "verniciatura").replace(/[^a-z0-9_-]/gi, "-").slice(0, 40) || "verniciatura";
+  const path = `painting-deliveries/${safeCode}/${crypto.randomUUID()}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from("job-photos").upload(path, prepared, { contentType: prepared.type, cacheControl: "3600", upsert: false });
+  if (uploadError) throw new Error(uploadError.message || "Upload foto fallito.");
+  return { photo_storage_path: path, photo_url: publicPhotoUrl(path) };
+}
 
 function logo(clickable = true) { const image = `<img src="https://www.simprolamiere.it/wp-content/uploads/2024/07/logo-simpro-128x128.png" alt="SIMPRO Lamiere">`; return clickable ? `<a class="brand" href="./" aria-label="SIMPRO Lamiere">${image}</a>` : `<span class="brand" aria-label="SIMPRO Lamiere">${image}</span>`; }
 function notice(message, type = "ok") { document.querySelector(".toast")?.remove(); const node = document.createElement("div"); node.className = `toast ${type}`; node.textContent = message; document.body.append(node); setTimeout(() => node.remove(), 3500); }
@@ -120,15 +160,39 @@ function priorityBadge(job) { const key = job.priority || "normale"; return `<i 
 function clientDetail(client, jobs, reminders) { return `<div class="detail-head"><div><small>CLIENTE</small><h2>${esc(client.name)}</h2><p>${esc(client.contact_name || "")}${client.email ? ` · ${esc(client.email)}` : ""}${client.phone ? ` · ${esc(client.phone)}` : ""}</p></div><div class="client-actions"><span class="status ${client.active ? "" : "off"}">${client.active ? "Attivo" : "Disattivato"}</span><button id="edit-client" class="secondary fit">Modifica dati</button><button id="delete-client" class="danger fit">Elimina cliente</button></div></div>${reminders.length ? `<div class="reminders-box"><div class="reminders-title">🔔 SOLLECITI DEL CLIENTE</div>${reminders.map((item) => { const job = jobs.find((entry) => entry.id === item.job_id); return `<div class="reminder-row"><span><strong>${esc(job?.title || "Lavorazione")}</strong><small>${formatDate(item.created_at)} · ${esc(item.message || "Richiesta di aggiornamento")}</small></span><button class="handle-reminder" data-id="${item.id}">Segna gestito</button></div>`; }).join("")}</div>` : ""}<div class="link-box"><span>LINK PERSONALE DEL CLIENTE</span><code>${esc(clientLink(client.access_token))}</code><div><button id="copy-link" class="primary fit">Copia link</button><button id="regenerate-link" class="secondary fit">Genera nuovo link</button></div></div><div class="section-title"><div><h3>Lavorazioni</h3><span>${jobs.length} presenti</span></div><button id="new-job" class="primary fit">+ Aggiungi</button></div><div class="work-list">${jobs.length ? jobs.map((job) => { const step = stepFor(job); return `<button class="work-row edit-job ${isOverdue(job) ? "overdue" : ""}" data-id="${job.id}"><span class="work-icon">${step.icon}</span><span><strong>${esc(job.title)} ${priorityBadge(job)}</strong><small>${esc(job.code || "")} · ${esc(step.label)}${job.painter ? ` · ${esc(job.painter)}` : ""} · Aggiornato il ${formatDate(job.updated_at)}</small></span><b>${Number(job.progress)}%</b></button>`; }).join("") : `<div class="empty small"><p>Nessuna lavorazione inserita.</p></div>`}</div>`; }
 
 function paintingView() {
+  const link = new URL(CLIENT_PORTAL_URL); link.searchParams.set("autista", "1");
   const rows = state.paintDeliveries;
-  const link = new URL("?autista=1", CLIENT_PORTAL_URL).toString();
+  const openRows = rows.filter((item) => !["rientrato"].includes(item.material_status || "") && !item.checked);
+  const byPainter = painters.map((painter) => [painter, rows.filter((item) => item.painter === painter && (item.material_status || "consegnato") !== "rientrato").length]);
+  const statusLabel = (value) => paintStatuses[value || "consegnato"] || "Consegnato al verniciatore";
   const items = rows.map((item) => {
-    const job = state.jobs.find((entry) => (entry.code || "").toLowerCase() === (item.job_code || "").toLowerCase());
-    const expected = job?.painter || "";
+    const related = state.jobs.find((job) => (item.job_code && job.code?.toLowerCase() === item.job_code.toLowerCase()) || job.title?.toLowerCase().includes(String(item.client_name || "").toLowerCase()));
+    const expected = related?.painter;
     const mismatch = expected && expected !== item.painter;
-    return `<div class="paint-row ${item.checked ? "checked" : ""} ${mismatch ? "mismatch" : ""}"><span><strong>${esc(item.client_name)}${item.job_code ? ` · ${esc(item.job_code)}` : ""}</strong><small>Portato a: ${esc(item.painter)} · ${formatDate(item.created_at)}${item.driver_name ? ` · Autista: ${esc(item.driver_name)}` : ""}</small>${expected ? `<small>Verniciatore assegnato: ${esc(expected)}${mismatch ? " - controllare" : " - corretto"}</small>` : `<small>Nessun verniciatore assegnato nella scheda cliente.</small>`}</span><button class="secondary fit check-paint" data-id="${item.id}">${item.checked ? "Controllato" : "Segna controllato"}</button></div>`;
+    return `<div class="paint-row ${item.checked ? "checked" : ""} ${mismatch ? "mismatch" : ""}">
+      ${item.photo_url ? `<a class="paint-photo" href="${esc(item.photo_url)}" target="_blank" rel="noopener"><img src="${esc(item.photo_url)}" alt="Foto verniciatura"></a>` : `<div class="paint-photo empty-photo">No foto</div>`}
+      <span>
+        <strong>${esc(item.client_name)}${item.job_code ? ` · ${esc(item.job_code)}` : ""}</strong>
+        <small><b>${esc(statusLabel(item.material_status))}</b> · ${esc(item.painter)} · ${formatDate(item.created_at)}</small>
+        ${item.driver_name ? `<small>Autista: ${esc(item.driver_name)}</small>` : ""}
+        ${item.notes ? `<small>Note: ${esc(item.notes)}</small>` : ""}
+        ${expected ? `<small>Verniciatore scheda: ${esc(expected)}${mismatch ? " - controllare" : " - corretto"}</small>` : `<small>Nessun verniciatore assegnato nella scheda cliente.</small>`}
+      </span>
+      <div class="paint-actions">
+        <select class="paint-status-select" data-id="${item.id}">
+          ${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${(item.material_status || "consegnato") === key ? "selected" : ""}>${label}</option>`).join("")}
+        </select>
+        <button class="secondary fit check-paint" data-id="${item.id}">${item.checked ? "Controllato" : "Segna controllato"}</button>
+      </div>
+    </div>`;
   }).join("");
-  return `${titleBlock("Controllo verniciatura", `<a class="secondary fit driver-link" href="${link}" target="_blank" rel="noopener">Apri pagina autista</a>`)}<section class="panel"><div class="panel-title"><h2>Consegne dichiarate dall\'autista</h2><span>${rows.length}</span></div>${rows.length ? items : `<div class="empty small"><p>Nessuna consegna inserita dall\'autista.</p></div>`}</section>`;
+  return `${titleBlock("Situazione verniciatura", `<a class="secondary fit driver-link" href="${link}" target="_blank" rel="noopener">Apri pagina autista</a>`)}
+    <div class="kpi-grid paint-kpis">
+      ${kpi("Movimenti aperti", openRows.length, "🎨", openRows.length > 0)}
+      ${kpi("Da controllare", rows.filter((item) => !item.checked).length, "⚠️", rows.some((item) => !item.checked))}
+      ${byPainter.map(([label, value]) => kpi(label, value, "▦")).join("")}
+    </div>
+    <section class="panel"><div class="panel-title"><h2>Materiale in verniciatura</h2><span>${rows.length}</span></div>${rows.length ? items : `<div class="empty small"><p>Nessuna consegna inserita dall'autista.</p></div>`}</section>`;
 }
 function statsView() {
   const totals = Object.fromEntries(Object.keys(priorities).map((key) => [key, state.jobs.filter((job) => job.priority === key).length])); const max = Math.max(1, ...Object.values(totals)); const complete = state.jobs.filter((job) => job.workflow_type !== "lamiere").length; const sheets = state.jobs.filter((job) => job.workflow_type === "lamiere").length; const ready = state.jobs.filter(isReady).length;
@@ -140,6 +204,7 @@ function bindView() {
   document.querySelector("#new-client")?.addEventListener("click", newClientModal); document.querySelectorAll(".kpi-action").forEach((button) => button.onclick = () => { state.quickFilter = button.dataset.filter || ""; state.view = "clients"; renderAdmin(); });
   document.querySelectorAll(".open-client").forEach((button) => button.onclick = () => { state.selectedId = button.dataset.client; state.view = "clients"; renderAdmin(); });
   document.querySelectorAll(".check-paint").forEach((button) => button.onclick = () => markPaintingChecked(button.dataset.id));
+  document.querySelectorAll(".paint-status-select").forEach((select) => select.onchange = () => updatePaintingStatus(select.dataset.id, select.value));
   document.querySelectorAll(".client-row").forEach((button) => button.onclick = () => { state.selectedId = button.dataset.id; renderAdmin(); });
   const applyFilters = () => { const text = document.querySelector("#filter-text")?.value.toLowerCase() || ""; const status = document.querySelector("#filter-status")?.value || ""; const priority = document.querySelector("#filter-priority")?.value || ""; const workflow = document.querySelector("#filter-workflow")?.value || ""; const painter = document.querySelector("#filter-painter")?.value || ""; document.querySelectorAll(".client-row").forEach((row) => { const statusOk = !status || status === "all" || (status === "ready" && row.dataset.ready === "true") || (status === "updated_today" && row.dataset.updatedToday === "true") || (status === "overdue" && row.dataset.overdue === "true") || (status === "active" && row.dataset.active === "true"); row.hidden = !(row.dataset.search.includes(text) && (!priority || row.dataset.priorities.includes(priority)) && (!workflow || row.dataset.workflows.includes(workflow)) && (!painter || row.dataset.painters.includes(painter)) && statusOk); }); };
   ["filter-text","filter-status","filter-priority","filter-workflow","filter-painter"].forEach((id) => document.querySelector(`#${id}`)?.addEventListener("input", () => { state.quickFilter = ""; applyFilters(); })); applyFilters();
@@ -176,14 +241,10 @@ function bindPhotoManager(job) {
     const files = Array.from(form.photos.files || []);
     if (!files.length) return notice("Seleziona almeno una foto.", "error");
     const caption = String(form.caption.value || "").trim();
-    for (const file of files) {
-      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-      const path = `${job.id}/${crypto.randomUUID()}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from("job-photos").upload(path, file, { cacheControl: "3600", upsert: false });
-      if (uploadError) return notice(uploadError.message, "error");
-      const url = publicPhotoUrl(path);
-      const { error } = await supabase.from("job_photos").insert({ job_id: job.id, storage_path: path, url, caption });
-      if (error) return notice(error.message, "error");
+    try {
+      for (const file of files) await uploadJobPhoto(job, file, caption);
+    } catch (error) {
+      return notice(error.message || "Caricamento foto non riuscito.", "error");
     }
     await logAction("job", job.id, "photos", `Caricate ${files.length} foto per ${job.title}`);
     notice("Foto caricate.");
@@ -202,18 +263,27 @@ function bindPhotoManager(job) {
 }
 async function markReminderHandled(id) { const { error } = await supabase.from("client_reminders").update({ handled: true, handled_at: new Date().toISOString() }).eq("id", id); if (error) return notice(error.message, "error"); await logAction("reminder", id, "handled", "Sollecito cliente segnato come gestito"); notice("Sollecito segnato come gestito."); adminPage(); }
 async function markPaintingChecked(id) { const { error } = await supabase.from("painting_deliveries").update({ checked: true, checked_at: new Date().toISOString() }).eq("id", id); if (error) return notice(error.message, "error"); await logAction("painting_delivery", id, "checked", "Consegna in verniciatura controllata"); notice("Consegna segnata come controllata."); adminPage(); }
+async function updatePaintingStatus(id, material_status) { const patch = { material_status, updated_at: new Date().toISOString() }; if (material_status === "rientrato") { patch.checked = true; patch.checked_at = new Date().toISOString(); } const { error } = await supabase.from("painting_deliveries").update(patch).eq("id", id); if (error) return notice(error.message, "error"); await logAction("painting_delivery", id, "status", `Stato verniciatura aggiornato: ${paintStatuses[material_status] || material_status}`); notice("Stato verniciatura aggiornato."); adminPage(); }
 async function regenerateLink(clientId) { if (!confirm("Il vecchio link smetterà immediatamente di funzionare. Continuare?")) return; const token = crypto.randomUUID(); const { error } = await supabase.from("clients").update({ access_token: token }).eq("id", clientId); if (error) return notice(error.message, "error"); await navigator.clipboard.writeText(clientLink(token)); await logAction("client", clientId, "link", "Rigenerato link personale cliente"); notice("Nuovo link generato e copiato."); adminPage(); }
 
 function driverPage() {
-  root.innerHTML = `<main class="driver-page"><section class="driver-card">${logo(false)}<span class="eyebrow red">ACCESSO AUTISTA</span><h1>Consegna in verniciatura</h1><p>Inserisci codice cliente/commessa, nome cliente e verniciatore dove stai portando il materiale.</p><form id="driver-form"><label>Codice cliente o commessa<input name="job_code" placeholder="Es. COM-2026-001"></label><label>Nome cliente<input name="client_name" required placeholder="Es. Rossi Srl"></label><label>Verniciatore<select name="painter" required><option value="">Seleziona</option>${painters.map((value) => `<option>${value}</option>`).join("")}</select></label><label>Nome autista<input name="driver_name" placeholder="Facoltativo"></label><label>Note<textarea name="notes" rows="3" placeholder="Facoltativo"></textarea></label><div id="driver-message" class="form-message"></div><button class="primary" type="submit">Registra consegna <span>→</span></button></form></section></main>`;
+  root.innerHTML = `<main class="driver-page"><section class="driver-card">${logo(false)}<span class="eyebrow red">ACCESSO AUTISTA</span><h1>Movimento verniciatura</h1><p>Inserisci dove si trova il materiale e, se serve, aggiungi una foto della commessa.</p><form id="driver-form"><label>Codice cliente o commessa<input name="job_code" placeholder="Es. COM-2026-001"></label><label>Nome cliente<input name="client_name" required placeholder="Es. Rossi Srl"></label><label>Verniciatore<select name="painter" required><option value="">Seleziona</option>${painters.map((value) => `<option>${value}</option>`).join("")}</select></label><label>Stato materiale<select name="material_status" required>${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${key === "consegnato" ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Nome autista<input name="driver_name" placeholder="Facoltativo"></label><label>Foto commessa<input name="photo" type="file" accept="image/*"></label><label>Note<textarea name="notes" rows="3" placeholder="Facoltativo"></textarea></label><div id="driver-message" class="form-message"></div><button class="primary" type="submit">Registra movimento <span>→</span></button></form></section></main>`;
   document.querySelector("#driver-form").onsubmit = async (event) => {
     event.preventDefault();
-    const data = Object.fromEntries(new FormData(event.target));
+    const form = event.target;
+    const data = Object.fromEntries(new FormData(form));
     data.job_code = String(data.job_code || "").trim(); data.client_name = String(data.client_name || "").trim(); data.driver_name = String(data.driver_name || "").trim(); data.notes = String(data.notes || "").trim();
+    delete data.photo;
     const message = document.querySelector("#driver-message");
-    const { error } = await supabase.from("painting_deliveries").insert(data);
-    if (error) { message.textContent = "Errore: consegna non registrata. Avvisa l\'ufficio."; message.className = "form-message error"; return; }
-    event.target.reset(); message.textContent = "Consegna registrata correttamente."; message.className = "form-message ok";
+    try {
+      const file = form.photo.files?.[0];
+      if (file) Object.assign(data, await uploadPaintingPhoto(file, data.job_code || data.client_name));
+      const { error } = await supabase.from("painting_deliveries").insert(data);
+      if (error) throw new Error(error.message);
+      form.reset(); message.textContent = "Movimento registrato correttamente."; message.className = "form-message ok";
+    } catch (error) {
+      message.textContent = `Errore: ${error.message || "movimento non registrato"}. Avvisa l'ufficio.`; message.className = "form-message error";
+    }
   };
 }
 
