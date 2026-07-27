@@ -55,17 +55,31 @@ const paintStatuses = {
   rientrato: "Rientrato in officina"
 };
 async function compressImage(file, maxSize = 1600, quality = 0.78) {
-  if (!file.type.startsWith("image/")) throw new Error("Carica solo file immagine.");
-  if (file.size <= 1800000) return file;
-  const image = await createImageBitmap(file);
-  const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(image.width * scale));
-  canvas.height = Math.max(1, Math.round(image.height * scale));
-  canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-  if (!blob) throw new Error("Non riesco a preparare la foto.");
-  return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+  const name = String(file.name || "").toLowerCase();
+  const type = String(file.type || "").toLowerCase();
+  const supported = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  const extensionOk = /\.(jpe?g|png|webp|gif)$/.test(name);
+  if (!type.startsWith("image/") && !extensionOk) throw new Error("Carica solo file immagine.");
+  if (type.includes("heic") || type.includes("heif") || /\.(heic|heif)$/.test(name)) {
+    throw new Error("Formato HEIC non supportato. Usa una foto JPG/PNG oppure inviala prima su WhatsApp e ricaricala.");
+  }
+  if (type && !supported.includes(type) && !extensionOk) {
+    throw new Error("Formato foto non supportato. Usa JPG, PNG, WebP o GIF.");
+  }
+  if (type === "image/gif" || file.size <= 1800000) return file;
+  try {
+    const image = await createImageBitmap(file);
+    const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    if (!blob) throw new Error("Non riesco a preparare la foto.");
+    return new File([blob], name.replace(/\.[^.]+$/, ".jpg") || "foto.jpg", { type: "image/jpeg" });
+  } catch (error) {
+    throw new Error("La foto non puo essere letta dal browser. Usa una foto JPG o PNG.");
+  }
 }
 async function uploadJobPhoto(job, file, caption = "") {
   const prepared = await compressImage(file);
@@ -232,7 +246,7 @@ function normalizeJobData(data) { data.workflow_type ||= "completa"; data.priori
 function newJobModal(clientId) { modal(`<span class="eyebrow red">NUOVA LAVORAZIONE</span><h2>Aggiungi lavorazione</h2>${jobForm()}`); bindWorkflowForm(); document.querySelector("#job-form").onsubmit = async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target)); data.client_id = clientId; normalizeJobData(data); const { data: inserted, error } = await supabase.from("jobs").insert(data).select().single(); if (error) return notice(error.message, "error"); await logAction("job", inserted.id, "create", `Creata lavorazione ${inserted.title}`); notice("Lavorazione aggiunta."); adminPage(); }; }
 function editJobModal(job) { const photos = state.jobPhotos.filter((photo) => photo.job_id === job.id); modal(`<span class="eyebrow red">AGGIORNA LAVORAZIONE</span><h2>${esc(job.title)}</h2>${jobForm(job, true)}${adminPhotoManager(job, photos)}<button class="danger" id="delete-job" type="button">Elimina lavorazione</button>`); bindWorkflowForm(); bindPhotoManager(job); document.querySelector("#job-form").onsubmit = async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target)); const notifyClient = data.notify_client === "on"; delete data.notify_client; normalizeJobData(data); data.updated_at = new Date().toISOString(); const { error } = await supabase.from("jobs").update(data).eq("id", job.id); if (error) return notice(error.message, "error"); await logAction("job", job.id, "update", `Aggiornata lavorazione ${data.title}: ${data.phase}`); if (notifyClient) { const { error: emailError } = await supabase.functions.invoke("notify-client", { body: { job_id: job.id } }); notice(emailError ? "Aggiornamento salvato, ma email non inviata." : "Aggiornamento salvato ed email inviata.", emailError ? "error" : "ok"); } else notice("Aggiornamento salvato."); adminPage(); }; document.querySelector("#delete-job").onclick = async () => { if (!confirm(`Eliminare definitivamente la lavorazione "${job.title}"?`)) return; const { error } = await supabase.from("jobs").delete().eq("id", job.id); if (error) return notice(error.message, "error"); await logAction("job", job.id, "delete", `Eliminata lavorazione ${job.title}`); notice("Lavorazione eliminata."); adminPage(); }; }
 function adminPhotoManager(job, photos = []) {
-  return `<section class="job-photo-manager"><div class="panel-title"><h3>Foto commessa</h3><span>${photos.length}</span></div><div class="admin-photo-grid">${photos.length ? photos.map((photo) => `<div class="admin-photo"><img src="${esc(photo.url)}" alt="${esc(photo.caption || "Foto commessa")}"><button type="button" class="delete-photo" data-id="${photo.id}" data-path="${esc(photo.storage_path)}">Elimina</button></div>`).join("") : `<p>Nessuna foto caricata.</p>`}</div><form id="photo-form" class="photo-upload"><label>Aggiungi foto<input name="photos" type="file" accept="image/*" multiple></label><label>Didascalia facoltativa<input name="caption" placeholder="Es. Materiale rientrato dalla verniciatura"></label><button class="secondary" type="submit">Carica foto</button></form></section>`;
+  return `<section class="job-photo-manager"><div class="panel-title"><h3>Foto commessa</h3><span>${photos.length}</span></div><div class="admin-photo-grid">${photos.length ? photos.map((photo) => `<div class="admin-photo"><img src="${esc(photo.url)}" alt="${esc(photo.caption || "Foto commessa")}"><button type="button" class="delete-photo" data-id="${photo.id}" data-path="${esc(photo.storage_path)}">Elimina</button></div>`).join("") : `<p>Nessuna foto caricata.</p>`}</div><form id="photo-form" class="photo-upload"><label>Aggiungi foto<input name="photos" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" multiple></label><label>Didascalia facoltativa<input name="caption" placeholder="Es. Materiale rientrato dalla verniciatura"></label><button class="secondary" type="submit">Carica foto</button></form></section>`;
 }
 function bindPhotoManager(job) {
   document.querySelector("#photo-form")?.addEventListener("submit", async (event) => {
@@ -267,7 +281,7 @@ async function updatePaintingStatus(id, material_status) { const patch = { mater
 async function regenerateLink(clientId) { if (!confirm("Il vecchio link smetterà immediatamente di funzionare. Continuare?")) return; const token = crypto.randomUUID(); const { error } = await supabase.from("clients").update({ access_token: token }).eq("id", clientId); if (error) return notice(error.message, "error"); await navigator.clipboard.writeText(clientLink(token)); await logAction("client", clientId, "link", "Rigenerato link personale cliente"); notice("Nuovo link generato e copiato."); adminPage(); }
 
 function driverPage() {
-  root.innerHTML = `<main class="driver-page"><section class="driver-card">${logo(false)}<span class="eyebrow red">ACCESSO AUTISTA</span><h1>Movimento verniciatura</h1><p>Inserisci dove si trova il materiale e, se serve, aggiungi una foto della commessa.</p><form id="driver-form"><label>Codice cliente o commessa<input name="job_code" placeholder="Es. COM-2026-001"></label><label>Nome cliente<input name="client_name" required placeholder="Es. Rossi Srl"></label><label>Verniciatore<select name="painter" required><option value="">Seleziona</option>${painters.map((value) => `<option>${value}</option>`).join("")}</select></label><label>Stato materiale<select name="material_status" required>${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${key === "consegnato" ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Nome autista<input name="driver_name" placeholder="Facoltativo"></label><label>Foto commessa<input name="photo" type="file" accept="image/*"></label><label>Note<textarea name="notes" rows="3" placeholder="Facoltativo"></textarea></label><div id="driver-message" class="form-message"></div><button class="primary" type="submit">Registra movimento <span>→</span></button></form></section></main>`;
+  root.innerHTML = `<main class="driver-page"><section class="driver-card">${logo(false)}<span class="eyebrow red">ACCESSO AUTISTA</span><h1>Movimento verniciatura</h1><p>Inserisci dove si trova il materiale e, se serve, aggiungi una foto della commessa.</p><form id="driver-form"><label>Codice cliente o commessa<input name="job_code" placeholder="Es. COM-2026-001"></label><label>Nome cliente<input name="client_name" required placeholder="Es. Rossi Srl"></label><label>Verniciatore<select name="painter" required><option value="">Seleziona</option>${painters.map((value) => `<option>${value}</option>`).join("")}</select></label><label>Stato materiale<select name="material_status" required>${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${key === "consegnato" ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Nome autista<input name="driver_name" placeholder="Facoltativo"></label><label>Foto commessa<input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"></label><label>Note<textarea name="notes" rows="3" placeholder="Facoltativo"></textarea></label><div id="driver-message" class="form-message"></div><button class="primary" type="submit">Registra movimento <span>→</span></button></form></section></main>`;
   document.querySelector("#driver-form").onsubmit = async (event) => {
     event.preventDefault();
     const form = event.target;
