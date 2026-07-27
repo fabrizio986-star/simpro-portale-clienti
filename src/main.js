@@ -107,6 +107,23 @@ async function uploadPaintingPhoto(file, fallbackCode = "verniciatura") {
   return { photo_storage_path: path, photo_url: publicPhotoUrl(path) };
 }
 
+function driverDeliveryRow(item) {
+  return `<article class="driver-delivery-row">
+    <div>
+      <strong>${esc(item.client_name || "Cliente")}</strong>
+      <small>${esc(item.job_code || "Senza codice")} · ${esc(item.painter || "Verniciatore non indicato")}</small>
+      <span class="driver-status">${esc(paintStatuses[item.material_status] || item.material_status || "Consegnato")}</span>
+      ${item.notes ? `<p>${esc(item.notes)}</p>` : ""}
+      <small>Inserito il ${formatDate(item.created_at)}${item.driver_name ? ` · ${esc(item.driver_name)}` : ""}</small>
+    </div>
+    ${item.photo_url ? `<a class="driver-photo" href="${esc(item.photo_url)}" target="_blank" rel="noopener"><img src="${esc(item.photo_url)}" alt="Foto verniciatura"></a>` : ""}
+  </article>`;
+}
+function driverSituationList(items = []) {
+  if (!items.length) return `<div class="empty small"><p>Nessun movimento registrato.</p></div>`;
+  return items.map(driverDeliveryRow).join("");
+}
+
 function logo(clickable = true) { const image = `<img src="https://www.simprolamiere.it/wp-content/uploads/2024/07/logo-simpro-128x128.png" alt="SIMPRO Lamiere">`; return clickable ? `<a class="brand" href="./" aria-label="SIMPRO Lamiere">${image}</a>` : `<span class="brand" aria-label="SIMPRO Lamiere">${image}</span>`; }
 function notice(message, type = "ok") { document.querySelector(".toast")?.remove(); const node = document.createElement("div"); node.className = `toast ${type}`; node.textContent = message; document.body.append(node); setTimeout(() => node.remove(), 3500); }
 function showAuth(message, ok = false) { const node = document.querySelector("#auth-message"); node.textContent = message; node.className = `form-message ${ok ? "ok" : "error"}`; }
@@ -285,8 +302,15 @@ async function markPaintingChecked(id) { const { error } = await supabase.from("
 async function updatePaintingStatus(id, material_status) { const patch = { material_status, updated_at: new Date().toISOString() }; if (material_status === "rientrato") { patch.checked = true; patch.checked_at = new Date().toISOString(); } const { error } = await supabase.from("painting_deliveries").update(patch).eq("id", id); if (error) return notice(error.message, "error"); await logAction("painting_delivery", id, "status", `Stato verniciatura aggiornato: ${paintStatuses[material_status] || material_status}`); notice("Stato verniciatura aggiornato."); adminPage(); }
 async function regenerateLink(clientId) { if (!confirm("Il vecchio link smetterà immediatamente di funzionare. Continuare?")) return; const token = crypto.randomUUID(); const { error } = await supabase.from("clients").update({ access_token: token }).eq("id", clientId); if (error) return notice(error.message, "error"); await navigator.clipboard.writeText(clientLink(token)); await logAction("client", clientId, "link", "Rigenerato link personale cliente"); notice("Nuovo link generato e copiato."); adminPage(); }
 
-function driverPage() {
-  root.innerHTML = `<main class="driver-page"><section class="driver-card">${logo(false)}<span class="eyebrow red">ACCESSO AUTISTA</span><h1>Movimento verniciatura</h1><p>Inserisci dove si trova il materiale e, se serve, aggiungi una foto della commessa.</p><form id="driver-form"><label>Codice cliente o commessa<input name="job_code" placeholder="Es. COM-2026-001"></label><label>Nome cliente<input name="client_name" required placeholder="Es. Rossi Srl"></label><label>Verniciatore<select name="painter" required><option value="">Seleziona</option>${painters.map((value) => `<option>${value}</option>`).join("")}</select></label><label>Stato materiale<select name="material_status" required>${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${key === "consegnato" ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Nome autista<input name="driver_name" placeholder="Facoltativo"></label><label>Foto commessa<input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"></label><label>Note<textarea name="notes" rows="3" placeholder="Facoltativo"></textarea></label><div id="driver-message" class="form-message"></div><button class="primary" type="submit">Registra movimento <span>→</span></button></form></section></main>`;
+async function driverPage() {
+  root.innerHTML = `<main class="driver-page"><section class="driver-card">${logo(false)}<span class="eyebrow red">ACCESSO AUTISTA</span><h1>Movimento verniciatura</h1><p>Inserisci dove si trova il materiale e controlla gli ultimi movimenti registrati.</p><form id="driver-form"><label>Codice cliente o commessa<input name="job_code" placeholder="Es. COM-2026-001"></label><label>Nome cliente<input name="client_name" required placeholder="Es. Rossi Srl"></label><label>Verniciatore<select name="painter" required><option value="">Seleziona</option>${painters.map((value) => `<option>${value}</option>`).join("")}</select></label><label>Stato materiale<select name="material_status" required>${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${key === "consegnato" ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Nome autista<input name="driver_name" placeholder="Facoltativo"></label><label>Foto commessa<input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"></label><label>Note<textarea name="notes" rows="3" placeholder="Facoltativo"></textarea></label><div id="driver-message" class="form-message"></div><button class="primary" type="submit">Registra movimento <span>→</span></button></form></section><section class="driver-card driver-situation"><div class="panel-title"><h2>Situazione materiale</h2><button class="secondary fit" id="driver-refresh" type="button">Aggiorna</button></div><div id="driver-list" class="driver-list"><div class="loading-inline">Caricamento movimenti...</div></div></section></main>`;
+  const loadDriverDeliveries = async () => {
+    const list = document.querySelector("#driver-list");
+    const { data, error } = await supabase.from("painting_deliveries").select("*").order("created_at", { ascending: false }).limit(80);
+    list.innerHTML = error ? `<div class="form-message error">Non riesco a caricare la situazione. Avvisa l'ufficio.</div>` : driverSituationList(data || []);
+  };
+  document.querySelector("#driver-refresh").onclick = loadDriverDeliveries;
+  await loadDriverDeliveries();
   document.querySelector("#driver-form").onsubmit = async (event) => {
     event.preventDefault();
     const form = event.target;
@@ -299,7 +323,7 @@ function driverPage() {
       if (file) Object.assign(data, await uploadPaintingPhoto(file, data.job_code || data.client_name));
       const { error } = await supabase.from("painting_deliveries").insert(data);
       if (error) throw new Error(error.message);
-      form.reset(); message.textContent = "Movimento registrato correttamente."; message.className = "form-message ok";
+      form.reset(); message.textContent = "Movimento registrato correttamente."; message.className = "form-message ok"; await loadDriverDeliveries();
     } catch (error) {
       message.textContent = `Errore: ${error.message || "movimento non registrato"}. Avvisa l'ufficio.`; message.className = "form-message error";
     }
