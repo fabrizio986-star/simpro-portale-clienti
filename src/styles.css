@@ -93,3 +93,6 @@
 .driver-search-row span, .driver-search-row small { color: #64748b; }
 .driver-search-row:hover { border-color: #dc2626; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08); }
 .driver-selected-job { margin: 10px 0; padding: 12px; border-radius: 8px; background: #f8fafc; border: 1px solid #cbd5e1; color: #0f172a; }
+
+.paint-correct-label{display:grid;gap:5px;margin:0;font-size:11px;font-weight:800;color:#a9141e}
+.paint-correct-label select{border-color:#d9232e;background:#fff}
