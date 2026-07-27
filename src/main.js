@@ -54,6 +54,23 @@ const paintStatuses = {
   ritirato: "Ritirato dal verniciatore",
   rientrato: "Rientrato in officina"
 };
+const normalizePainter = (value = "") => String(value || "").trim().toUpperCase();
+function expectedPaintingJob(delivery) {
+  const code = String(delivery?.job_code || "").trim().toLowerCase();
+  const client = String(delivery?.client_name || "").trim().toLowerCase();
+  if (code) {
+    const exact = state.jobs.find((job) => String(job.code || "").trim().toLowerCase() === code);
+    if (exact) return exact;
+  }
+  if (client) return state.jobs.find((job) => String(job.title || "").toLowerCase().includes(client) || String(job.code || "").toLowerCase().includes(client));
+  return null;
+}
+function paintingMismatch(delivery) {
+  const job = expectedPaintingJob(delivery);
+  const expected = normalizePainter(job?.painter);
+  const actual = normalizePainter(delivery?.painter);
+  return { job, expected, actual, mismatch: Boolean(expected && actual && expected !== actual) };
+}
 async function compressImage(file, maxSize = 1600, quality = 0.78) {
   const originalName = String(file.name || "foto.jpg");
   const name = originalName.toLowerCase();
@@ -199,23 +216,26 @@ function paintingView() {
   const link = new URL(CLIENT_PORTAL_URL); link.searchParams.set("autista", "1");
   const rows = state.paintDeliveries;
   const openRows = rows.filter((item) => !["rientrato"].includes(item.material_status || "") && !item.checked);
-  const uncheckedRows = rows.filter((item) => !item.checked);
+  const mismatchRows = rows.filter((item) => paintingMismatch(item).mismatch);
+  const uncheckedRows = rows.filter((item) => !item.checked || paintingMismatch(item).mismatch);
   const byPainter = painters.map((painter) => [painter, rows.filter((item) => item.painter === painter && (item.material_status || "consegnato") !== "rientrato").length]);
   const statusLabel = (value) => paintStatuses[value || "consegnato"] || "Consegnato al verniciatore";
   const activeFilter = state.paintFilter || "all";
-  const filterLabels = { all: "Tutti", open: "Movimenti aperti", unchecked: "Da controllare", ...Object.fromEntries(painters.map((painter) => [`painter:${painter}`, painter])) };
+  const filterLabels = { all: "Tutti", open: "Movimenti aperti", unchecked: "Da controllare", mismatch: "Errore verniciatore", ...Object.fromEntries(painters.map((painter) => [`painter:${painter}`, painter])) };
   const filteredRows = rows.filter((item) => {
     if (activeFilter === "all") return true;
     if (activeFilter === "open") return !["rientrato"].includes(item.material_status || "") && !item.checked;
-    if (activeFilter === "unchecked") return !item.checked;
+    if (activeFilter === "unchecked") return !item.checked || paintingMismatch(item).mismatch;
+    if (activeFilter === "mismatch") return paintingMismatch(item).mismatch;
     if (activeFilter.startsWith("painter:")) return item.painter === activeFilter.replace("painter:", "");
     return true;
   });
   const paintKpi = (label, value, icon, filter, danger = false) => `<button class="kpi kpi-action paint-filter ${danger ? "danger" : ""} ${activeFilter === filter ? "active" : ""}" data-paint-filter="${esc(filter)}" type="button"><span>${icon}</span><div><small>${esc(label)}</small><strong>${value}</strong></div></button>`;
   const items = filteredRows.map((item) => {
-    const related = state.jobs.find((job) => (item.job_code && job.code?.toLowerCase() === item.job_code.toLowerCase()) || job.title?.toLowerCase().includes(String(item.client_name || "").toLowerCase()));
-    const expected = related?.painter;
-    const mismatch = expected && expected !== item.painter;
+    const check = paintingMismatch(item);
+    const related = check.job;
+    const expected = check.expected;
+    const mismatch = check.mismatch;
     return `<div class="paint-row ${item.checked ? "checked" : ""} ${mismatch ? "mismatch" : ""}">
       ${item.photo_url ? `<a class="paint-photo" href="${esc(item.photo_url)}" target="_blank" rel="noopener"><img src="${esc(item.photo_url)}" alt="Foto verniciatura"></a>` : `<div class="paint-photo empty-photo">No foto</div>`}
       <span>
@@ -223,7 +243,7 @@ function paintingView() {
         <small><b>${esc(statusLabel(item.material_status))}</b> · ${esc(item.painter)} · ${formatDate(item.created_at)}</small>
         ${item.driver_name ? `<small>Autista: ${esc(item.driver_name)}</small>` : ""}
         ${item.notes ? `<small>Note: ${esc(item.notes)}</small>` : ""}
-        ${expected ? `<small>Verniciatore scheda: ${esc(expected)}${mismatch ? " - controllare" : " - corretto"}</small>` : `<small>Nessun verniciatore assegnato nella scheda cliente.</small>`}
+        ${expected ? `<small class="${mismatch ? "paint-warning" : ""}">${mismatch ? "ATTENZIONE: " : ""}Previsto: ${esc(expected)} · Portato: ${esc(item.painter || "-")}${mismatch ? " - DA CONTROLLARE" : " - corretto"}</small>` : `<small>Nessun verniciatore assegnato nella scheda cliente.</small>`}
       </span>
       <div class="paint-actions">
         <select class="paint-status-select" data-id="${item.id}">
@@ -238,6 +258,7 @@ function paintingView() {
       ${paintKpi("Tutti", rows.length, "▦", "all")}
       ${paintKpi("Movimenti aperti", openRows.length, "🎨", "open", openRows.length > 0)}
       ${paintKpi("Da controllare", uncheckedRows.length, "⚠️", "unchecked", uncheckedRows.length > 0)}
+      ${paintKpi("Errori verniciatore", mismatchRows.length, "!", "mismatch", mismatchRows.length > 0)}
       ${byPainter.map(([label, value]) => paintKpi(label, value, "▦", `painter:${label}`)).join("")}
     </div>
     <section class="panel"><div class="panel-title"><h2>Materiale in verniciatura</h2><span>${esc(filterLabels[activeFilter] || "Tutti")} · ${filteredRows.length}</span></div>${filteredRows.length ? items : `<div class="empty small"><p>Nessun movimento per questo filtro.</p></div>`}</section>`;
@@ -311,19 +332,12 @@ function bindPhotoManager(job) {
 }
 async function markReminderHandled(id) { const { error } = await supabase.from("client_reminders").update({ handled: true, handled_at: new Date().toISOString() }).eq("id", id); if (error) return notice(error.message, "error"); await logAction("reminder", id, "handled", "Sollecito cliente segnato come gestito"); notice("Sollecito segnato come gestito."); adminPage(); }
 function findPaintingJob(delivery) {
-  const code = String(delivery?.job_code || "").trim().toLowerCase();
-  const client = String(delivery?.client_name || "").trim().toLowerCase();
-  if (code) {
-    const exact = state.jobs.find((job) => String(job.code || "").trim().toLowerCase() === code);
-    if (exact) return exact;
-  }
-  if (client) return state.jobs.find((job) => String(job.title || "").toLowerCase().includes(client) || String(job.code || "").toLowerCase().includes(client));
-  return null;
+  return expectedPaintingJob(delivery);
 }
 function paintingJobPatch(job, delivery) {
   const materialStatus = delivery.material_status || "consegnato";
   const patch = {
-    painter: delivery.painter || job.painter || null,
+    painter: paintingMismatch(delivery).mismatch ? job.painter || null : (delivery.painter || job.painter || null),
     has_painting: true,
     updated_at: new Date().toISOString()
   };
@@ -334,9 +348,11 @@ function paintingJobPatch(job, delivery) {
   patch.current_step = nextJob.current_step;
   patch.progress = nextJob.progress;
   patch.phase = nextJob.phase;
-  const note = `Verniciatura: ${paintStatuses[materialStatus] || materialStatus} presso ${delivery.painter || "vernicatore non indicato"}${delivery.driver_name ? ` - autista ${delivery.driver_name}` : ""}${delivery.notes ? ` - note: ${delivery.notes}` : ""}`;
+  const check = paintingMismatch(delivery);
+  const warning = check.mismatch ? `ATTENZIONE verniciatore diverso: previsto ${check.expected}, portato a ${check.actual}. ` : "";
+  const note = `${warning}Verniciatura: ${paintStatuses[materialStatus] || materialStatus} presso ${delivery.painter || "vernicatore non indicato"}${delivery.driver_name ? ` - autista ${delivery.driver_name}` : ""}${delivery.notes ? ` - note: ${delivery.notes}` : ""}`;
   patch.admin_notes = [job.admin_notes, note].filter(Boolean).join("\n");
-  if (!job.note || String(job.note).includes("Verniciatura:")) patch.note = materialStatus === "rientrato" ? "Materiale rientrato dalla verniciatura." : `Materiale in verniciatura presso ${delivery.painter}.`;
+  if (!job.note || String(job.note).includes("Verniciatura:")) patch.note = check.mismatch ? "Materiale in verniciatura da controllare con SIMPRO." : (materialStatus === "rientrato" ? "Materiale rientrato dalla verniciatura." : `Materiale in verniciatura presso ${delivery.painter}.`);
   return patch;
 }
 async function syncPaintingDeliveryToJob(delivery) {
@@ -362,6 +378,12 @@ async function syncPaintingDeliveryToJob(delivery) {
 }
 async function markPaintingChecked(id) {
   const delivery = state.paintDeliveries.find((item) => String(item.id) === String(id));
+  const check = paintingMismatch(delivery);
+  if (check.mismatch) {
+    const { error } = await supabase.from("painting_deliveries").update({ checked: false, updated_at: new Date().toISOString() }).eq("id", id);
+    if (error) return notice(error.message, "error");
+    return notice(`ATTENZIONE: commessa prevista per ${check.expected}, ma portata a ${check.actual}. Resta da controllare.`, "error");
+  }
   const patch = { checked: true, checked_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   const { data, error } = await supabase.from("painting_deliveries").update(patch).eq("id", id).select().single();
   if (error) return notice(error.message, "error");
@@ -376,14 +398,16 @@ async function markPaintingChecked(id) {
 }
 async function updatePaintingStatus(id, material_status) {
   const delivery = state.paintDeliveries.find((item) => String(item.id) === String(id));
+  const check = paintingMismatch(delivery);
   const patch = { material_status, updated_at: new Date().toISOString() };
+  if (check.mismatch) patch.checked = false;
   if (material_status === "rientrato") { patch.checked = true; patch.checked_at = new Date().toISOString(); }
   const { data, error } = await supabase.from("painting_deliveries").update(patch).eq("id", id).select().single();
   if (error) return notice(error.message, "error");
   try {
     const result = await syncPaintingDeliveryToJob(data || { ...delivery, ...patch });
     await logAction("painting_delivery", id, "status", `Stato verniciatura aggiornato: ${paintStatuses[material_status] || material_status}`);
-    notice(result.synced ? "Stato verniciatura e scheda cliente aggiornati." : result.message, result.synced ? "ok" : "error");
+    notice(check.mismatch ? `ATTENZIONE: previsto ${check.expected}, portato a ${check.actual}. Movimento da controllare.` : (result.synced ? "Stato verniciatura e scheda cliente aggiornati." : result.message), check.mismatch ? "error" : (result.synced ? "ok" : "error"));
   } catch (error) {
     notice(error.message || "Stato aggiornato, ma scheda cliente non aggiornata.", "error");
   }
