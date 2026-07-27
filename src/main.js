@@ -220,7 +220,7 @@ function paintingView() {
   const uncheckedRows = rows.filter((item) => !item.checked || paintingMismatch(item).mismatch);
   const noPhotoRows = rows.filter((item) => !item.photo_url);
   const controlRows = [...new Map([...mismatchRows, ...uncheckedRows, ...noPhotoRows].map((item) => [item.id, item])).values()];
-  const byPainter = painters.map((painter) => [painter, rows.filter((item) => item.painter === painter && (item.material_status || "consegnato") !== "rientrato").length]);
+  const byPainter = painters.map((painter) => [painter, rows.filter((item) => normalizePainter(item.painter) === painter && (item.material_status || "consegnato") !== "rientrato").length]);
   const statusLabel = (value) => paintStatuses[value || "consegnato"] || "Consegnato al verniciatore";
   const activeFilter = state.paintFilter || "all";
   const filterLabels = { all: "Tutti", open: "Movimenti aperti", unchecked: "Da controllare", mismatch: "Errore verniciatore", no_photo: "Senza foto", ...Object.fromEntries(painters.map((painter) => [`painter:${painter}`, painter])) };
@@ -230,7 +230,7 @@ function paintingView() {
     if (activeFilter === "unchecked") return !item.checked || paintingMismatch(item).mismatch;
     if (activeFilter === "mismatch") return paintingMismatch(item).mismatch;
     if (activeFilter === "no_photo") return !item.photo_url;
-    if (activeFilter.startsWith("painter:")) return item.painter === activeFilter.replace("painter:", "");
+    if (activeFilter.startsWith("painter:")) return normalizePainter(item.painter) === normalizePainter(activeFilter.replace("painter:", ""));
     return true;
   });
   const paintKpi = (label, value, icon, filter, danger = false) => `<button class="kpi kpi-action paint-filter ${danger ? "danger" : ""} ${activeFilter === filter ? "active" : ""}" data-paint-filter="${esc(filter)}" type="button"><span>${icon}</span><div><small>${esc(label)}</small><strong>${value}</strong></div></button>`;
