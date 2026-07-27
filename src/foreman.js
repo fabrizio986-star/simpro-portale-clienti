@@ -97,7 +97,7 @@ function render() {
     document.querySelectorAll(".foreman-row").forEach((node, index) => {
       const item = rows[index];
       const text = node.dataset.search || "";
-      const okFilter = active === "all" || (active === "painting" && (item.has_painting || item.expected_painter || item.current_step === "verniciatura")) || (active === "errors" && (item.needs_check || item.painter_mismatch)) || (painters.includes(active) && text.includes(active.toLowerCase()));
+      const okFilter = active === "all" || (active === "painting" && (item.has_painting || item.expected_painter || item.current_step === "verniciatura")) || (active === "errors" && (item.needs_check || item.painter_mismatch)) || (painters.includes(active) && painterFor(item) === active);
       node.hidden = !(text.includes(q) && okFilter);
     });
   };
