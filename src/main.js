@@ -22,16 +22,16 @@ const completeSteps = [
   { key: "verniciatura", label: "In verniciatura", icon: "🎨", description: "Il manufatto è in fase di verniciatura.", optional: "has_painting" },
   { key: "arrivo_officina", label: "Arrivo in officina", icon: "🏭", description: "Il manufatto è rientrato nella nostra officina." },
   { key: "controllo", label: "Controllo qualità", icon: "🔍", description: "Stiamo effettuando il controllo finale." },
-  { key: "pronto_ritiro", label: "Pronto per il ritiro", icon: "✅", description: "La commessa è pronta per il ritiro o la consegna." },
   { key: "in_attesa_cliente", label: "In attesa cliente", icon: "⏳", description: "Siamo in attesa di una conferma o di un riscontro dal cliente." },
+  { key: "pronto_ritiro", label: "Pronto per il ritiro", icon: "✅", description: "La commessa è pronta per il ritiro o la consegna." },
 ];
 const sheetSteps = [
   { key: "ordinazione", label: "Ordinazione", icon: "🧾", description: "La lamiera è stata ordinata." },
   { key: "lavorazione", label: "Lavorazione", icon: "⚙️", description: "La lamiera è in lavorazione." },
   { key: "piegatura", label: "Piegatura", icon: "📐", description: "La lamiera è in fase di piegatura." },
   { key: "verniciatura", label: "Verniciatura", icon: "🎨", description: "La lamiera è in verniciatura.", optional: "has_painting" },
-  { key: "pronto_ritiro", label: "Pronto per il ritiro", icon: "✅", description: "La lamiera è pronta per il ritiro." },
   { key: "in_attesa_cliente", label: "In attesa cliente", icon: "⏳", description: "Siamo in attesa di una conferma o di un riscontro dal cliente." },
+  { key: "pronto_ritiro", label: "Pronto per il ritiro", icon: "✅", description: "La lamiera è pronta per il ritiro." },
 ];
 const priorities = { urgente: "🔴 Urgente", alta: "🟠 Alta", normale: "🟡 Normale", bassa: "🟢 Bassa" };
 const WHATSAPP_NUMBER = "393780669899";
