@@ -76,7 +76,12 @@ function render() {
   const inPainting = rows.filter((item) => item.has_painting || item.expected_painter || item.current_step === "verniciatura");
   const checks = rows.filter((item) => item.needs_check);
   const errors = rows.filter((item) => item.painter_mismatch);
-  root.innerHTML = `<header class="topbar">${logo()}<div class="account"><span><small>Capofficina</small><strong>SIMPRO Lamiere</strong></span><button id="logout">Esci</button></div></header><main class="foreman-page"><section class="admin-title foreman-title"><div><span class="eyebrow red">AREA CAPOFFICINA</span><h1>Stato clienti e verniciatura</h1></div><button class="secondary fit" id="refresh">Aggiorna</button></section><div class="kpi-grid foreman-kpis"><div class="kpi"><span>⚙</span><div><small>Lavorazioni</small><strong>${rows.length}</strong></div></div><div class="kpi"><span>🎨</span><div><small>In verniciatura</small><strong>${inPainting.length}</strong></div></div><div class="kpi ${checks.length ? "danger" : ""}"><span>!</span><div><small>Da controllare</small><strong>${checks.length}</strong></div></div><div class="kpi ${errors.length ? "danger" : ""}"><span>!</span><div><small>Errori verniciatore</small><strong>${errors.length}</strong></div></div></div>${painterBoard(inPainting)}<section class="panel foreman-search-panel"><label>Cerca cliente o commessa<input id="search" type="search" placeholder="Nome cliente, codice commessa, verniciatore..."></label><div class="foreman-filters"><button class="secondary fit foreman-filter active" data-filter="all" type="button">Tutto</button><button class="secondary fit foreman-filter" data-filter="painting" type="button">Solo verniciatura</button><button class="secondary fit foreman-filter" data-filter="errors" type="button">Da controllare/errori</button>${painters.map((p) => `<button class="secondary fit foreman-filter" data-filter="${p}" type="button">${p}</button>`).join("")}</div></section><section class="foreman-list">${rows.map(row).join("") || '<div class="empty"><p>Nessuna lavorazione presente.</p></div>'}</section></main>`;
+  const quickItems = [
+    { label: "Da controllare", value: checks.length, filter: "errors", hot: checks.length > 0 },
+    { label: "In verniciatura", value: inPainting.length, filter: "painting" },
+    ...painters.map((painter) => ({ label: painter, value: inPainting.filter((item) => painterFor(item) === painter).length, filter: painter }))
+  ];
+  root.innerHTML = `<header class="topbar foreman-topbar">${logo()}<div class="account"><span><small>Capofficina</small><strong>SIMPRO Lamiere</strong></span><button id="logout">Esci</button></div></header><main class="foreman-page"><section class="admin-title foreman-title"><div><span class="eyebrow red">AREA CAPOFFICINA</span><h1>Controllo rapido</h1><p>Clienti, commesse e materiale in verniciatura.</p></div><button class="secondary fit" id="refresh">Aggiorna</button></section><section class="panel foreman-search-panel foreman-search-first"><label>Cerca subito<input id="search" type="search" inputmode="search" autocomplete="off" placeholder="Scrivi cliente, codice o verniciatore..."></label><div class="foreman-quick-actions">${quickItems.map((item) => `<button class="foreman-quick foreman-filter ${item.hot ? "hot" : ""}" data-filter="${esc(item.filter)}" type="button"><strong>${item.value}</strong><span>${esc(item.label)}</span></button>`).join("")}</div><details class="foreman-more-filters"><summary>Altri filtri</summary><div class="foreman-filters"><button class="secondary fit foreman-filter active" data-filter="all" type="button">Tutto</button><button class="secondary fit foreman-filter" data-filter="painting" type="button">Solo verniciatura</button><button class="secondary fit foreman-filter" data-filter="errors" type="button">Da controllare/errori</button>${painters.map((p) => `<button class="secondary fit foreman-filter" data-filter="${p}" type="button">${p}</button>`).join("")}</div></details></section><div class="kpi-grid foreman-kpis foreman-desktop-only"><div class="kpi"><span>•</span><div><small>Lavorazioni</small><strong>${rows.length}</strong></div></div><div class="kpi"><span>•</span><div><small>In verniciatura</small><strong>${inPainting.length}</strong></div></div><div class="kpi ${checks.length ? "danger" : ""}"><span>!</span><div><small>Da controllare</small><strong>${checks.length}</strong></div></div><div class="kpi ${errors.length ? "danger" : ""}"><span>!</span><div><small>Errori verniciatore</small><strong>${errors.length}</strong></div></div></div>${painterBoard(inPainting)}<section class="foreman-list">${rows.map(row).join("") || '<div class="empty"><p>Nessuna lavorazione presente.</p></div>'}</section></main>`;
   let active = "all";
   const apply = () => {
     const q = String(document.querySelector("#search").value || "").toLowerCase().trim();
@@ -87,14 +92,18 @@ function render() {
       node.hidden = !(text.includes(q) && okFilter);
     });
   };
+  const setActive = (filter) => {
+    active = filter;
+    document.querySelectorAll(".foreman-filter").forEach((item) => item.classList.toggle("active", item.dataset.filter === filter));
+    apply();
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      document.querySelector(".foreman-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
   document.querySelector("#logout").onclick = () => supabase.auth.signOut().then(loginPage);
   document.querySelector("#refresh").onclick = loadPage;
   document.querySelector("#search").oninput = apply;
-  document.querySelectorAll(".foreman-filter").forEach((button) => button.onclick = () => {
-    active = button.dataset.filter;
-    document.querySelectorAll(".foreman-filter").forEach((item) => item.classList.toggle("active", item === button));
-    apply();
-  });
+  document.querySelectorAll(".foreman-filter").forEach((button) => button.onclick = () => setActive(button.dataset.filter));
 }
 
 async function loadPage() {
