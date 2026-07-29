@@ -11,6 +11,7 @@ const PAINTERS = ["DAMAS", "SOSAM", "METALLIKA", "GALLO"];
 const esc = (value = "") => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
 const formatDate = (value) => value ? new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" }).format(new Date(value)) : "—";
 const normalize = (value = "") => String(value || "").trim().toUpperCase();
+const searchText = (value = "") => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 let officeData = { clients: [], jobs: [], deliveries: [] };
 
 function logo() {
@@ -52,7 +53,8 @@ function officeCard(item, jobs, clients) {
   const painter = normalize(item.painter || job?.painter) || "NON ASSEGNATO";
   const status = item.material_status || "consegnato";
   const labels = { da_portare: "Da portare", in_viaggio: "In viaggio", consegnato: "Consegnato", ritirato: "Da rientrare", rientrato: "Rientrato in officina" };
-  return `<article class="office-card" data-search="${esc(`${clientName} ${item.job_code || job?.code || ""} ${painter}`.toLowerCase())}"><div><span class="office-status status-${esc(status)}">${esc(labels[status] || status)}</span><h3>${esc(clientName)}</h3><p>${esc(item.job_code || job?.code || "Senza numero commessa")}</p><strong>${esc(painter)}</strong><small>Aggiornato: ${formatDate(item.updated_at || item.created_at)}</small>${item.notes ? `<small>Note trasporto: ${esc(item.notes)}</small>` : ""}${job ? `<button class="open-office-client" data-client="${esc(job.client_id)}" type="button">Apri scheda cliente</button>` : ""}</div>${item.photo_url ? `<a href="${esc(item.photo_url)}" target="_blank" rel="noopener"><img src="${esc(item.photo_url)}" alt="Foto lavorazione"></a>` : ""}</article>`;
+  const searchable = searchText([clientName, item.job_code, job?.code, job?.title, painter, item.notes, job?.note, job?.admin_notes].filter(Boolean).join(" "));
+  return `<article class="office-card" data-search="${esc(searchable)}"><div><span class="office-status status-${esc(status)}">${esc(labels[status] || status)}</span><h3>${esc(clientName)}</h3><p>${esc(item.job_code || job?.code || "Senza numero commessa")}</p><strong>${esc(painter)}</strong><small>Aggiornato: ${formatDate(item.updated_at || item.created_at)}</small>${item.notes ? `<small>Note trasporto: ${esc(item.notes)}</small>` : ""}${job ? `<button class="open-office-client" data-client="${esc(job.client_id)}" type="button">Apri scheda cliente</button>` : ""}</div>${item.photo_url ? `<a href="${esc(item.photo_url)}" target="_blank" rel="noopener"><img src="${esc(item.photo_url)}" alt="Foto lavorazione"></a>` : ""}</article>`;
 }
 
 function clientSheet(clientId) {
@@ -60,9 +62,24 @@ function clientSheet(clientId) {
   const jobs = officeData.jobs.filter((job) => String(job.client_id) === String(clientId));
   if (!client) return;
   const rows = jobs.map((job) => `<article class="office-job-detail"><div class="office-job-head"><div><small>${esc(job.code || "Senza numero commessa")}</small><h3>${esc(job.title || "Lavorazione")}</h3></div><span>${esc(job.painter || "Verniciatore non assegnato")}</span></div><div class="office-note"><strong>Note lavorazione</strong><p>${esc(job.note || "Nessuna nota inserita.")}</p></div><div class="office-note internal"><strong>Note interne officina</strong><p>${esc(job.admin_notes || "Nessuna nota interna inserita.")}</p></div><small>Aggiornato il ${formatDate(job.updated_at)}${job.due_date ? ` · Previsto ${formatDate(job.due_date)}` : ""}</small></article>`).join("");
-  document.body.insertAdjacentHTML("beforeend", `<div class="office-modal-bg"><section class="office-modal"><button class="office-modal-close" type="button">×</button><span>SCHEda CLIENTE</span><h2>${esc(client.name)}</h2><div class="office-job-list">${rows || '<div class="office-empty">Nessuna lavorazione collegata.</div>'}</div></section></div>`);
+  document.body.insertAdjacentHTML("beforeend", `<div class="office-modal-bg"><section class="office-modal"><button class="office-modal-close" type="button">×</button><span>SCHEDA CLIENTE</span><h2>${esc(client.name)}</h2><div class="office-job-list">${rows || '<div class="office-empty">Nessuna lavorazione collegata.</div>'}</div></section></div>`);
   document.querySelector(".office-modal-close").onclick = () => document.querySelector(".office-modal-bg")?.remove();
   document.querySelector(".office-modal-bg").onclick = (event) => { if (event.target.classList.contains("office-modal-bg")) event.currentTarget.remove(); };
+}
+
+function applyOfficeSearch(rawQuery) {
+  const query = searchText(rawQuery);
+  document.querySelectorAll(".office-section").forEach((section) => {
+    let visible = 0;
+    section.querySelectorAll(".office-card").forEach((card) => {
+      const matches = !query || searchText(card.dataset.search).includes(query);
+      card.hidden = !matches;
+      if (matches) visible += 1;
+    });
+    const counter = section.querySelector(".office-section-title span");
+    if (counter) counter.textContent = String(visible);
+    section.hidden = Boolean(query) && visible === 0;
+  });
 }
 
 async function officePage() {
@@ -86,12 +103,10 @@ async function officePage() {
   const toCollect = rows.filter((item) => item.material_status === "ritirato");
 
   const section = (title, items, className) => `<section class="office-section ${className}"><div class="office-section-title"><h2>${title}</h2><span>${items.length}</span></div><div class="office-grid">${items.length ? items.map((item) => officeCard(item, jobs, clients)).join("") : '<div class="office-empty">Nessuna lavorazione.</div>'}</div></section>`;
-  root.innerHTML = `<header class="office-header">${logo()}<div><small>TABLET OFFICINA</small><h1>Verniciature</h1></div><button id="office-refresh">Aggiorna</button></header><main class="office-wrap"><div class="office-kpis"><div><small>Da portare</small><strong>${toTake.length}</strong></div><div><small>Dal verniciatore</small><strong>${delivered.length}</strong></div><div><small>Da ritirare</small><strong>${toCollect.length}</strong></div></div><label class="office-search">Cerca cliente o commessa<input id="office-search" type="search" placeholder="Scrivi nome o numero commessa"></label>${section("Da portare in verniciatura", toTake, "to-take")}${section("Consegnate ai verniciatori", delivered, "delivered")}${section("Da ritirare / rientrare", toCollect, "to-collect")}<section class="office-painters"><h2>Riepilogo per verniciatore</h2>${PAINTERS.map((painter) => `<div><span>${painter}</span><strong>${rows.filter((item) => normalize(item.painter) === painter).length}</strong></div>`).join("")}</section></main>`;
+  root.innerHTML = `<header class="office-header">${logo()}<div><small>TABLET OFFICINA</small><h1>Verniciature</h1></div><button id="office-refresh">Aggiorna</button></header><main class="office-wrap"><div class="office-kpis"><div><small>Da portare</small><strong>${toTake.length}</strong></div><div><small>Dal verniciatore</small><strong>${delivered.length}</strong></div><div><small>Da ritirare</small><strong>${toCollect.length}</strong></div></div><label class="office-search">Cerca cliente, commessa o nota<input id="office-search" type="search" inputmode="search" autocomplete="off" placeholder="Scrivi nome, numero commessa o parola nelle note"></label>${section("Da portare in verniciatura", toTake, "to-take")}${section("Consegnate ai verniciatori", delivered, "delivered")}${section("Da ritirare / rientrare", toCollect, "to-collect")}<section class="office-painters"><h2>Riepilogo per verniciatore</h2>${PAINTERS.map((painter) => `<div><span>${painter}</span><strong>${rows.filter((item) => normalize(item.painter) === painter).length}</strong></div>`).join("")}</section></main>`;
   document.querySelector("#office-refresh").onclick = officePage;
-  document.querySelector("#office-search").oninput = (event) => {
-    const query = event.target.value.trim().toLowerCase();
-    document.querySelectorAll(".office-card").forEach((card) => card.hidden = !card.dataset.search.includes(query));
-  };
+  const searchInput = document.querySelector("#office-search");
+  ["input", "keyup", "search", "change"].forEach((eventName) => searchInput.addEventListener(eventName, () => applyOfficeSearch(searchInput.value)));
   document.querySelectorAll(".open-office-client").forEach((button) => button.onclick = () => clientSheet(button.dataset.client));
 }
 
