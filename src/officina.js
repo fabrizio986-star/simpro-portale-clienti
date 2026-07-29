@@ -11,6 +11,7 @@ const PAINTERS = ["DAMAS", "SOSAM", "METALLIKA", "GALLO"];
 const esc = (value = "") => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
 const formatDate = (value) => value ? new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" }).format(new Date(value)) : "—";
 const normalize = (value = "") => String(value || "").trim().toUpperCase();
+let officeData = { clients: [], jobs: [], deliveries: [] };
 
 function logo() {
   return '<img class="office-logo" src="https://www.simprolamiere.it/wp-content/uploads/2024/07/logo-simpro-128x128.png" alt="SIMPRO Lamiere">';
@@ -35,15 +36,33 @@ function latestByJob(deliveries, jobs, clients) {
   return [...latest.values()];
 }
 
-function officeCard(item, jobs, clients) {
-  const clientMap = new Map(clients.map((client) => [String(client.id), client.name]));
+function resolveJob(item, jobs, clients) {
   const code = String(item.job_code || "").trim().toLowerCase();
-  const job = jobs.find((entry) => code && String(entry.code || "").trim().toLowerCase() === code);
-  const clientName = item.client_name || (job ? clientMap.get(String(job.client_id)) : "") || "Cliente";
+  const clientName = String(item.client_name || "").trim().toLowerCase();
+  const clientMap = new Map(clients.map((client) => [String(client.id), client.name]));
+  return jobs.find((entry) => code && String(entry.code || "").trim().toLowerCase() === code)
+    || jobs.find((entry) => clientName && String(clientMap.get(String(entry.client_id)) || "").trim().toLowerCase() === clientName)
+    || null;
+}
+
+function officeCard(item, jobs, clients) {
+  const job = resolveJob(item, jobs, clients);
+  const client = clients.find((entry) => String(entry.id) === String(job?.client_id));
+  const clientName = item.client_name || client?.name || "Cliente";
   const painter = normalize(item.painter || job?.painter) || "NON ASSEGNATO";
   const status = item.material_status || "consegnato";
   const labels = { da_portare: "Da portare", in_viaggio: "In viaggio", consegnato: "Consegnato", ritirato: "Da rientrare", rientrato: "Rientrato in officina" };
-  return `<article class="office-card" data-search="${esc(`${clientName} ${item.job_code || job?.code || ""} ${painter}`.toLowerCase())}"><div><span class="office-status status-${esc(status)}">${esc(labels[status] || status)}</span><h3>${esc(clientName)}</h3><p>${esc(item.job_code || job?.code || "Senza numero commessa")}</p><strong>${esc(painter)}</strong><small>Aggiornato: ${formatDate(item.updated_at || item.created_at)}</small>${item.notes ? `<small>Note: ${esc(item.notes)}</small>` : ""}</div>${item.photo_url ? `<a href="${esc(item.photo_url)}" target="_blank" rel="noopener"><img src="${esc(item.photo_url)}" alt="Foto lavorazione"></a>` : ""}</article>`;
+  return `<article class="office-card" data-search="${esc(`${clientName} ${item.job_code || job?.code || ""} ${painter}`.toLowerCase())}"><div><span class="office-status status-${esc(status)}">${esc(labels[status] || status)}</span><h3>${esc(clientName)}</h3><p>${esc(item.job_code || job?.code || "Senza numero commessa")}</p><strong>${esc(painter)}</strong><small>Aggiornato: ${formatDate(item.updated_at || item.created_at)}</small>${item.notes ? `<small>Note trasporto: ${esc(item.notes)}</small>` : ""}${job ? `<button class="open-office-client" data-client="${esc(job.client_id)}" type="button">Apri scheda cliente</button>` : ""}</div>${item.photo_url ? `<a href="${esc(item.photo_url)}" target="_blank" rel="noopener"><img src="${esc(item.photo_url)}" alt="Foto lavorazione"></a>` : ""}</article>`;
+}
+
+function clientSheet(clientId) {
+  const client = officeData.clients.find((entry) => String(entry.id) === String(clientId));
+  const jobs = officeData.jobs.filter((job) => String(job.client_id) === String(clientId));
+  if (!client) return;
+  const rows = jobs.map((job) => `<article class="office-job-detail"><div class="office-job-head"><div><small>${esc(job.code || "Senza numero commessa")}</small><h3>${esc(job.title || "Lavorazione")}</h3></div><span>${esc(job.painter || "Verniciatore non assegnato")}</span></div><div class="office-note"><strong>Note lavorazione</strong><p>${esc(job.note || "Nessuna nota inserita.")}</p></div><div class="office-note internal"><strong>Note interne officina</strong><p>${esc(job.admin_notes || "Nessuna nota interna inserita.")}</p></div><small>Aggiornato il ${formatDate(job.updated_at)}${job.due_date ? ` · Previsto ${formatDate(job.due_date)}` : ""}</small></article>`).join("");
+  document.body.insertAdjacentHTML("beforeend", `<div class="office-modal-bg"><section class="office-modal"><button class="office-modal-close" type="button">×</button><span>SCHEda CLIENTE</span><h2>${esc(client.name)}</h2><div class="office-job-list">${rows || '<div class="office-empty">Nessuna lavorazione collegata.</div>'}</div></section></div>`);
+  document.querySelector(".office-modal-close").onclick = () => document.querySelector(".office-modal-bg")?.remove();
+  document.querySelector(".office-modal-bg").onclick = (event) => { if (event.target.classList.contains("office-modal-bg")) event.currentTarget.remove(); };
 }
 
 async function officePage() {
@@ -57,6 +76,7 @@ async function officePage() {
   const clients = data.clients || [];
   const jobs = data.jobs || [];
   const deliveries = data.deliveries || [];
+  officeData = { clients, jobs, deliveries };
   const latest = latestByJob(deliveries, jobs, clients);
   const plannedJobs = jobs.filter((job) => job.has_painting && job.painter && !latest.some((item) => String(item.job_code || "").trim().toLowerCase() === String(job.code || "").trim().toLowerCase()));
   const planned = plannedJobs.map((job) => ({ id: `job-${job.id}`, job_code: job.code, client_name: clients.find((client) => client.id === job.client_id)?.name, painter: job.painter, material_status: "da_portare", updated_at: job.updated_at }));
@@ -72,6 +92,7 @@ async function officePage() {
     const query = event.target.value.trim().toLowerCase();
     document.querySelectorAll(".office-card").forEach((card) => card.hidden = !card.dataset.search.includes(query));
   };
+  document.querySelectorAll(".open-office-client").forEach((button) => button.onclick = () => clientSheet(button.dataset.client));
 }
 
 officePage();
