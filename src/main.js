@@ -322,6 +322,7 @@ function paintingView() {
     const problems = [check.mismatch ? `Verniciatore errato: previsto ${check.expected}, inserito ${check.actual}` : "", !item.checked ? "Da approvare" : "", !item.photo_url ? "Foto mancante" : ""].filter(Boolean).join(" · ");
     return `<button class="painting-control-row paint-filter" type="button" data-paint-filter="${check.mismatch ? "mismatch" : (!item.photo_url ? "no_photo" : "unchecked")}"><span><strong>${esc(item.client_name || "Cliente")}${item.job_code ? ` · ${esc(item.job_code)}` : ""}</strong><small>${esc(problems || "Da controllare")}</small></span><b>Apri</b></button>`;
   }).join("");
+  const materialList = `<section class="panel" id="painting-material-list"><div class="panel-title"><h2>${activeFilter === "ready" ? "Materiale pronto per il ritiro" : "Materiale dal verniciatore"}</h2><span>${esc(filterLabels[activeFilter] || "Materiale dal verniciatore")} · ${filteredRows.length}</span></div>${filteredRows.length ? items : `<div class="empty small"><p>Nessun movimento per questo filtro.</p></div>`}</section>`;
   return `${titleBlock("Controllo verniciatura", `<div class="title-actions"><button class="primary fit" id="new-paint-delivery" type="button">+ Inserisci manualmente</button><a class="secondary fit driver-link" href="${link}" target="_blank" rel="noopener">Apri pagina autista</a></div>`)}
     <div class="kpi-grid paint-kpis">
       ${paintKpi("Dal verniciatore", activeRows.length, "▦", "all")}
@@ -332,9 +333,11 @@ function paintingView() {
       ${paintKpi("Senza foto", noPhotoRows.length, "📷", "no_photo", noPhotoRows.length > 0)}
       ${byPainter.map(([label, value]) => paintKpi(label, value, "▦", `painter:${label}`)).join("")}
     </div>
-    <section class="panel painting-control"><div class="panel-title"><h2>Controllo verniciatura</h2><span>${controlRows.length}</span></div>${controlRows.length ? controlPreview : `<div class="empty small"><p>Nessun controllo aperto.</p></div>`}</section>
-    <section class="panel painter-board"><div class="panel-title"><h2>Vista per verniciatore</h2><span>Materiale aperto</span></div><div class="painter-lanes">${painterLaneItems}</div></section>
-    <section class="panel"><div class="panel-title"><h2>${activeFilter === "ready" ? "Materiale pronto per il ritiro" : "Materiale dal verniciatore"}</h2><span>${esc(filterLabels[activeFilter] || "Materiale dal verniciatore")} · ${filteredRows.length}</span></div>${filteredRows.length ? items : `<div class="empty small"><p>Nessun movimento per questo filtro.</p></div>`}</section>`;
+    ${activeFilter === "ready" ? materialList : `
+      <section class="panel painting-control"><div class="panel-title"><h2>Controllo verniciatura</h2><span>${controlRows.length}</span></div>${controlRows.length ? controlPreview : `<div class="empty small"><p>Nessun controllo aperto.</p></div>`}</section>
+      <section class="panel painter-board"><div class="panel-title"><h2>Vista per verniciatore</h2><span>Materiale aperto</span></div><div class="painter-lanes">${painterLaneItems}</div></section>
+      ${materialList}
+    `}`;
 }
 function statsView() {
   const totals = Object.fromEntries(Object.keys(priorities).map((key) => [key, state.jobs.filter((job) => job.priority === key).length])); const max = Math.max(1, ...Object.values(totals)); const complete = state.jobs.filter((job) => job.workflow_type !== "lamiere").length; const sheets = state.jobs.filter((job) => job.workflow_type === "lamiere").length; const ready = state.jobs.filter(isReady).length;
