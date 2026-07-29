@@ -10,8 +10,6 @@ create table if not exists public.officina_access_links (
 );
 
 alter table public.officina_access_links enable row level security;
-
--- Il token non viene letto direttamente dal browser: viene verificato dalla funzione security definer.
 revoke all on public.officina_access_links from anon, authenticated;
 
 drop policy if exists "officina reads clients" on public.clients;
@@ -50,6 +48,9 @@ as $$
           'current_step', j.current_step,
           'painter', j.painter,
           'has_painting', j.has_painting,
+          'note', j.note,
+          'admin_notes', j.admin_notes,
+          'due_date', j.due_date,
           'updated_at', j.updated_at
         ) order by j.updated_at desc)
         from public.jobs j
@@ -70,8 +71,6 @@ insert into public.officina_access_links (label)
 select 'Tablet officina'
 where not exists (select 1 from public.officina_access_links);
 
--- Dopo l'esecuzione copia il token mostrato da questa query e inseriscilo nel link:
--- https://clienti.simprolamiere.it/officina.html?accesso=TOKEN
 select access_token, active, label, created_at
 from public.officina_access_links
 order by created_at desc;
