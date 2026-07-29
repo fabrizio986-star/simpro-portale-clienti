@@ -82,7 +82,7 @@ function painterBoard(items) {
 }
 
 function render() {
-  const inPainting = rows.filter((item) => item.has_painting || item.expected_painter || item.current_step === "verniciatura");
+  const inPainting = rows.filter((item) => item.current_step === "verniciatura");
   const checks = rows.filter((item) => item.needs_check);
   const errors = rows.filter((item) => item.painter_mismatch);
   const quickItems = [
@@ -97,7 +97,7 @@ function render() {
     document.querySelectorAll(".foreman-row").forEach((node, index) => {
       const item = rows[index];
       const text = node.dataset.search || "";
-      const okFilter = active === "all" || (active === "painting" && (item.has_painting || item.expected_painter || item.current_step === "verniciatura")) || (active === "errors" && (item.needs_check || item.painter_mismatch)) || (painters.includes(active) && painterFor(item) === active);
+      const okFilter = active === "all" || (active === "painting" && item.current_step === "verniciatura") || (active === "errors" && (item.needs_check || item.painter_mismatch)) || (painters.includes(active) && item.current_step === "verniciatura" && painterFor(item) === active);
       node.hidden = !(text.includes(q) && okFilter);
     });
   };
