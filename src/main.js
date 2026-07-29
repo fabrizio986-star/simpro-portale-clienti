@@ -54,6 +54,10 @@ const paintStatuses = {
   ritirato: "Ritirato dal verniciatore",
   rientrato: "Rientrato in officina"
 };
+const isMaterialAtPainter = (delivery) => {
+  const status = delivery?.material_status || "consegnato";
+  return status !== "rientrato" && !(status === "ritirato" && delivery?.checked);
+};
 const normalizePainter = (value = "") => String(value || "").trim().toUpperCase();
 function expectedPaintingJob(delivery) {
   const code = String(delivery?.job_code || "").trim().toLowerCase();
@@ -252,30 +256,30 @@ function clientDetail(client, jobs, reminders) { return `<div class="detail-head
 function paintingView() {
   const link = new URL(CLIENT_PORTAL_URL); link.searchParams.set("autista", "1");
   const rows = state.paintDeliveries;
-  const activeRows = rows.filter((item) => item.material_status !== "rientrato");
-  const readyRows = rows.filter((item) => item.material_status === "rientrato");
+  const activeRows = rows.filter(isMaterialAtPainter);
+  const readyRows = rows.filter((item) => !isMaterialAtPainter(item));
   const openRows = activeRows.filter((item) => !item.checked);
   const mismatchRows = activeRows.filter((item) => paintingMismatch(item).mismatch);
   const uncheckedRows = activeRows.filter((item) => !item.checked || paintingMismatch(item).mismatch);
   const noPhotoRows = activeRows.filter((item) => !item.photo_url);
   const controlRows = [...new Map([...mismatchRows, ...uncheckedRows, ...noPhotoRows].map((item) => [item.id, item])).values()];
-  const byPainter = painters.map((painter) => [painter, rows.filter((item) => deliveryPainterFor(item) === painter && (item.material_status || "consegnato") !== "rientrato").length]);
+  const byPainter = painters.map((painter) => [painter, rows.filter((item) => deliveryPainterFor(item) === painter && isMaterialAtPainter(item)).length]);
   const statusLabel = (value) => paintStatuses[value || "consegnato"] || "Consegnato al verniciatore";
   const activeFilter = state.paintFilter || "all";
   const filterLabels = { all: "Materiale dal verniciatore", open: "Movimenti aperti", ready: "Materiale pronto per il ritiro", unchecked: "Da controllare", mismatch: "Errore verniciatore", no_photo: "Senza foto", ...Object.fromEntries(painters.map((painter) => [`painter:${painter}`, painter])) };
   const filteredRows = rows.filter((item) => {
-    if (activeFilter === "all") return item.material_status !== "rientrato";
-    if (activeFilter === "open") return item.material_status !== "rientrato" && !item.checked;
-    if (activeFilter === "ready") return item.material_status === "rientrato";
-    if (activeFilter === "unchecked") return item.material_status !== "rientrato" && (!item.checked || paintingMismatch(item).mismatch);
-    if (activeFilter === "mismatch") return item.material_status !== "rientrato" && paintingMismatch(item).mismatch;
-    if (activeFilter === "no_photo") return item.material_status !== "rientrato" && !item.photo_url;
-    if (activeFilter.startsWith("painter:")) return item.material_status !== "rientrato" && deliveryPainterFor(item) === normalizePainter(activeFilter.replace("painter:", ""));
+    if (activeFilter === "all") return isMaterialAtPainter(item);
+    if (activeFilter === "open") return isMaterialAtPainter(item) && !item.checked;
+    if (activeFilter === "ready") return !isMaterialAtPainter(item);
+    if (activeFilter === "unchecked") return isMaterialAtPainter(item) && (!item.checked || paintingMismatch(item).mismatch);
+    if (activeFilter === "mismatch") return isMaterialAtPainter(item) && paintingMismatch(item).mismatch;
+    if (activeFilter === "no_photo") return isMaterialAtPainter(item) && !item.photo_url;
+    if (activeFilter.startsWith("painter:")) return isMaterialAtPainter(item) && deliveryPainterFor(item) === normalizePainter(activeFilter.replace("painter:", ""));
     return true;
   });
   const paintKpi = (label, value, icon, filter, danger = false) => `<button class="kpi kpi-action paint-filter ${danger ? "danger" : ""} ${activeFilter === filter ? "active" : ""}" data-paint-filter="${esc(filter)}" type="button"><span>${icon}</span><div><small>${esc(label)}</small><strong>${value}</strong></div></button>`;
   const painterLaneItems = painters.map((painter) => {
-    const laneRows = rows.filter((item) => deliveryPainterFor(item) === painter && (item.material_status || "consegnato") !== "rientrato");
+    const laneRows = rows.filter((item) => deliveryPainterFor(item) === painter && isMaterialAtPainter(item));
     const cards = laneRows.slice(0, 8).map((item) => {
       const check = paintingMismatch(item);
       const status = statusLabel(item.material_status);
