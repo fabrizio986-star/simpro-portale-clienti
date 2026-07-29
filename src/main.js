@@ -210,6 +210,13 @@ async function adminPage() {
       }
     }
   }
+  const readyDeliveries = state.paintDeliveries.filter((item) => item.material_status === "rientrato");
+  for (const delivery of readyDeliveries) {
+    const job = findPaintingJob(delivery);
+    if (job && job.current_step !== "pronto_ritiro") {
+      try { await syncPaintingDeliveryToJob(delivery); } catch (error) { console.error(error); }
+    }
+  }
   renderAdmin();
 }
 
@@ -245,24 +252,25 @@ function clientDetail(client, jobs, reminders) { return `<div class="detail-head
 function paintingView() {
   const link = new URL(CLIENT_PORTAL_URL); link.searchParams.set("autista", "1");
   const rows = state.paintDeliveries;
-  const openRows = rows.filter((item) => !["rientrato"].includes(item.material_status || "") && !item.checked);
-  const mismatchRows = rows.filter((item) => paintingMismatch(item).mismatch);
-  const uncheckedRows = rows.filter((item) => !item.checked || paintingMismatch(item).mismatch);
-  const noPhotoRows = rows.filter((item) => !item.photo_url);
-  const collectedRows = rows.filter((item) => ["ritirato", "rientrato"].includes(item.material_status || ""));
+  const activeRows = rows.filter((item) => item.material_status !== "rientrato");
+  const readyRows = rows.filter((item) => item.material_status === "rientrato");
+  const openRows = activeRows.filter((item) => !item.checked);
+  const mismatchRows = activeRows.filter((item) => paintingMismatch(item).mismatch);
+  const uncheckedRows = activeRows.filter((item) => !item.checked || paintingMismatch(item).mismatch);
+  const noPhotoRows = activeRows.filter((item) => !item.photo_url);
   const controlRows = [...new Map([...mismatchRows, ...uncheckedRows, ...noPhotoRows].map((item) => [item.id, item])).values()];
   const byPainter = painters.map((painter) => [painter, rows.filter((item) => deliveryPainterFor(item) === painter && (item.material_status || "consegnato") !== "rientrato").length]);
   const statusLabel = (value) => paintStatuses[value || "consegnato"] || "Consegnato al verniciatore";
   const activeFilter = state.paintFilter || "all";
-  const filterLabels = { all: "Tutti", open: "Movimenti aperti", collected: "Materiale ritirato", unchecked: "Da controllare", mismatch: "Errore verniciatore", no_photo: "Senza foto", ...Object.fromEntries(painters.map((painter) => [`painter:${painter}`, painter])) };
+  const filterLabels = { all: "Materiale dal verniciatore", open: "Movimenti aperti", ready: "Materiale pronto per il ritiro", unchecked: "Da controllare", mismatch: "Errore verniciatore", no_photo: "Senza foto", ...Object.fromEntries(painters.map((painter) => [`painter:${painter}`, painter])) };
   const filteredRows = rows.filter((item) => {
-    if (activeFilter === "all") return true;
-    if (activeFilter === "open") return !["rientrato"].includes(item.material_status || "") && !item.checked;
-    if (activeFilter === "collected") return ["ritirato", "rientrato"].includes(item.material_status || "");
-    if (activeFilter === "unchecked") return !item.checked || paintingMismatch(item).mismatch;
-    if (activeFilter === "mismatch") return paintingMismatch(item).mismatch;
-    if (activeFilter === "no_photo") return !item.photo_url;
-    if (activeFilter.startsWith("painter:")) return deliveryPainterFor(item) === normalizePainter(activeFilter.replace("painter:", ""));
+    if (activeFilter === "all") return item.material_status !== "rientrato";
+    if (activeFilter === "open") return item.material_status !== "rientrato" && !item.checked;
+    if (activeFilter === "ready") return item.material_status === "rientrato";
+    if (activeFilter === "unchecked") return item.material_status !== "rientrato" && (!item.checked || paintingMismatch(item).mismatch);
+    if (activeFilter === "mismatch") return item.material_status !== "rientrato" && paintingMismatch(item).mismatch;
+    if (activeFilter === "no_photo") return item.material_status !== "rientrato" && !item.photo_url;
+    if (activeFilter.startsWith("painter:")) return item.material_status !== "rientrato" && deliveryPainterFor(item) === normalizePainter(activeFilter.replace("painter:", ""));
     return true;
   });
   const paintKpi = (label, value, icon, filter, danger = false) => `<button class="kpi kpi-action paint-filter ${danger ? "danger" : ""} ${activeFilter === filter ? "active" : ""}" data-paint-filter="${esc(filter)}" type="button"><span>${icon}</span><div><small>${esc(label)}</small><strong>${value}</strong></div></button>`;
@@ -316,9 +324,9 @@ function paintingView() {
   }).join("");
   return `${titleBlock("Controllo verniciatura", `<div class="title-actions"><button class="primary fit" id="new-paint-delivery" type="button">+ Inserisci manualmente</button><a class="secondary fit driver-link" href="${link}" target="_blank" rel="noopener">Apri pagina autista</a></div>`)}
     <div class="kpi-grid paint-kpis">
-      ${paintKpi("Tutti", rows.length, "▦", "all")}
+      ${paintKpi("Dal verniciatore", activeRows.length, "▦", "all")}
       ${paintKpi("Movimenti aperti", openRows.length, "🎨", "open", openRows.length > 0)}
-      ${paintKpi("Materiale ritirato", collectedRows.length, "🏭", "collected")}
+      ${paintKpi("Materiale pronto per il ritiro", readyRows.length, "✅", "ready")}
       ${paintKpi("Da controllare", uncheckedRows.length, "⚠️", "unchecked", uncheckedRows.length > 0)}
       ${paintKpi("Errori verniciatore", mismatchRows.length, "!", "mismatch", mismatchRows.length > 0)}
       ${paintKpi("Senza foto", noPhotoRows.length, "📷", "no_photo", noPhotoRows.length > 0)}
@@ -326,7 +334,7 @@ function paintingView() {
     </div>
     <section class="panel painting-control"><div class="panel-title"><h2>Controllo verniciatura</h2><span>${controlRows.length}</span></div>${controlRows.length ? controlPreview : `<div class="empty small"><p>Nessun controllo aperto.</p></div>`}</section>
     <section class="panel painter-board"><div class="panel-title"><h2>Vista per verniciatore</h2><span>Materiale aperto</span></div><div class="painter-lanes">${painterLaneItems}</div></section>
-    <section class="panel"><div class="panel-title"><h2>Materiale in verniciatura</h2><span>${esc(filterLabels[activeFilter] || "Tutti")} · ${filteredRows.length}</span></div>${filteredRows.length ? items : `<div class="empty small"><p>Nessun movimento per questo filtro.</p></div>`}</section>`;
+    <section class="panel"><div class="panel-title"><h2>${activeFilter === "ready" ? "Materiale pronto per il ritiro" : "Materiale dal verniciatore"}</h2><span>${esc(filterLabels[activeFilter] || "Materiale dal verniciatore")} · ${filteredRows.length}</span></div>${filteredRows.length ? items : `<div class="empty small"><p>Nessun movimento per questo filtro.</p></div>`}</section>`;
 }
 function statsView() {
   const totals = Object.fromEntries(Object.keys(priorities).map((key) => [key, state.jobs.filter((job) => job.priority === key).length])); const max = Math.max(1, ...Object.values(totals)); const complete = state.jobs.filter((job) => job.workflow_type !== "lamiere").length; const sheets = state.jobs.filter((job) => job.workflow_type === "lamiere").length; const ready = state.jobs.filter(isReady).length;
@@ -488,7 +496,7 @@ function paintingJobPatch(job, delivery) {
     has_painting: true,
     updated_at: new Date().toISOString()
   };
-  if (materialStatus === "rientrato") patch.current_step = job.workflow_type === "lamiere" ? "pronto_ritiro" : "arrivo_officina";
+  if (materialStatus === "rientrato") patch.current_step = "pronto_ritiro";
   else if (["consegnato", "in_viaggio", "da_portare", "ritirato"].includes(materialStatus)) patch.current_step = "verniciatura";
   const nextJob = { ...job, ...patch };
   normalizeJobData(nextJob);
@@ -499,7 +507,7 @@ function paintingJobPatch(job, delivery) {
   const warning = check.mismatch ? `ATTENZIONE verniciatore diverso: previsto ${check.expected}, portato a ${check.actual}. ` : "";
   const note = `${warning}Verniciatura: ${paintStatuses[materialStatus] || materialStatus} presso ${delivery.painter || "vernicatore non indicato"}${delivery.driver_name ? ` - autista ${delivery.driver_name}` : ""}${delivery.notes ? ` - note: ${delivery.notes}` : ""}`;
   patch.admin_notes = [job.admin_notes, note].filter(Boolean).join("\n");
-  if (!job.note || String(job.note).includes("Verniciatura:")) patch.note = check.mismatch ? "Materiale in verniciatura da controllare con SIMPRO." : (materialStatus === "rientrato" ? "Materiale rientrato dalla verniciatura." : `Materiale in verniciatura presso ${delivery.painter}.`);
+  if (!job.note || String(job.note).includes("Verniciatura:") || materialStatus === "rientrato") patch.note = check.mismatch ? "Materiale in verniciatura da controllare con SIMPRO." : (materialStatus === "rientrato" ? "Materiale rientrato in officina e pronto per il ritiro." : `Materiale in verniciatura presso ${delivery.painter}.`);
   return patch;
 }
 async function syncPaintingDeliveryToJob(delivery) {
