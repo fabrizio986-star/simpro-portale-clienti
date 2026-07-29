@@ -62,7 +62,19 @@ function expectedPaintingJob(delivery) {
     const exact = state.jobs.find((job) => String(job.code || "").trim().toLowerCase() === code);
     if (exact) return exact;
   }
-  if (client) return state.jobs.find((job) => String(job.title || "").toLowerCase().includes(client) || String(job.code || "").toLowerCase().includes(client));
+  if (client) {
+    const relatedClient = state.clients.find((item) => {
+      const name = String(item.name || "").trim().toLowerCase();
+      return name === client || name.includes(client) || client.includes(name);
+    });
+    if (relatedClient) {
+      const relatedJobs = state.jobs.filter((job) => String(job.client_id) === String(relatedClient.id));
+      if (relatedJobs.length === 1) return relatedJobs[0];
+      const paintingJob = relatedJobs.find((job) => job.current_step === "verniciatura" || job.has_painting);
+      if (paintingJob) return paintingJob;
+    }
+    return state.jobs.find((job) => String(job.title || "").toLowerCase().includes(client) || String(job.code || "").toLowerCase().includes(client));
+  }
   return null;
 }
 function paintingMismatch(delivery) {
@@ -185,7 +197,20 @@ async function adminPage() {
     supabase.from("job_photos").select("*").order("created_at", { ascending: false }).limit(500),
   ]);
   if (results[0].error || results[1].error || results[2].error) { root.innerHTML = `<main class="not-found">${logo()}<h1>Configurazione necessaria</h1><p>Esegui nel SQL Editor di Supabase il file <strong>supabase/migrations/20260727_portal_management.sql</strong>.</p><button class="primary fit" id="logout">Esci</button></main>`; document.querySelector("#logout").onclick = () => supabase.auth.signOut().then(loginPage); return; }
-  state.clients = results[0].data || []; state.jobs = results[1].data || []; state.reminders = results[2].data || []; state.audit = results[3].data || []; state.paintDeliveries = results[4].data || []; state.jobPhotos = results[5].data || []; state.selectedId ||= state.clients[0]?.id || null; renderAdmin();
+  state.clients = results[0].data || []; state.jobs = results[1].data || []; state.reminders = results[2].data || []; state.audit = results[3].data || []; state.paintDeliveries = results[4].data || []; state.jobPhotos = results[5].data || []; state.selectedId ||= state.clients[0]?.id || null;
+  const approvedPickups = state.paintDeliveries.filter((item) => item.checked && item.material_status === "ritirato");
+  if (approvedPickups.length) {
+    const ids = approvedPickups.map((item) => item.id);
+    const updatedAt = new Date().toISOString();
+    const { error: pickupError } = await supabase.from("painting_deliveries").update({ material_status: "rientrato", updated_at: updatedAt }).in("id", ids);
+    if (!pickupError) {
+      state.paintDeliveries = state.paintDeliveries.map((item) => ids.includes(item.id) ? { ...item, material_status: "rientrato", updated_at: updatedAt } : item);
+      for (const delivery of state.paintDeliveries.filter((item) => ids.includes(item.id))) {
+        try { await syncPaintingDeliveryToJob(delivery); } catch (error) { console.error(error); }
+      }
+    }
+  }
+  renderAdmin();
 }
 
 function nav() { const open = state.reminders.filter((item) => !item.handled).length; const pendingPaint = state.paintDeliveries.filter((item) => !item.checked).length; return `<aside class="sidebar"><span class="side-title">GESTIONE</span>${[["dashboard","▦ Dashboard"],["today","✓ Da fare oggi"],["clients","👥 Clienti e lavorazioni"],["painting","🎨 Verniciatura"],["stats","▥ Statistiche"],["admin","⚙ Amministrazione"]].map(([key,label]) => `<button class="nav-button ${state.view === key ? "active" : ""}" data-view="${key}">${label}${key === "today" && open ? `<b>${open}</b>` : ""}${key === "painting" && pendingPaint ? `<b>${pendingPaint}</b>` : ""}</button>`).join("")}<div class="stat"><span>Clienti inseriti</span><strong>${state.clients.length}</strong></div><div class="stat"><span>Lavorazioni attive</span><strong>${state.jobs.filter((job) => !isReady(job)).length}</strong></div></aside>`; }
@@ -224,14 +249,16 @@ function paintingView() {
   const mismatchRows = rows.filter((item) => paintingMismatch(item).mismatch);
   const uncheckedRows = rows.filter((item) => !item.checked || paintingMismatch(item).mismatch);
   const noPhotoRows = rows.filter((item) => !item.photo_url);
+  const collectedRows = rows.filter((item) => ["ritirato", "rientrato"].includes(item.material_status || ""));
   const controlRows = [...new Map([...mismatchRows, ...uncheckedRows, ...noPhotoRows].map((item) => [item.id, item])).values()];
   const byPainter = painters.map((painter) => [painter, rows.filter((item) => deliveryPainterFor(item) === painter && (item.material_status || "consegnato") !== "rientrato").length]);
   const statusLabel = (value) => paintStatuses[value || "consegnato"] || "Consegnato al verniciatore";
   const activeFilter = state.paintFilter || "all";
-  const filterLabels = { all: "Tutti", open: "Movimenti aperti", unchecked: "Da controllare", mismatch: "Errore verniciatore", no_photo: "Senza foto", ...Object.fromEntries(painters.map((painter) => [`painter:${painter}`, painter])) };
+  const filterLabels = { all: "Tutti", open: "Movimenti aperti", collected: "Materiale ritirato", unchecked: "Da controllare", mismatch: "Errore verniciatore", no_photo: "Senza foto", ...Object.fromEntries(painters.map((painter) => [`painter:${painter}`, painter])) };
   const filteredRows = rows.filter((item) => {
     if (activeFilter === "all") return true;
     if (activeFilter === "open") return !["rientrato"].includes(item.material_status || "") && !item.checked;
+    if (activeFilter === "collected") return ["ritirato", "rientrato"].includes(item.material_status || "");
     if (activeFilter === "unchecked") return !item.checked || paintingMismatch(item).mismatch;
     if (activeFilter === "mismatch") return paintingMismatch(item).mismatch;
     if (activeFilter === "no_photo") return !item.photo_url;
@@ -272,6 +299,7 @@ function paintingView() {
         ${expected ? `<small class="${mismatch ? "paint-warning" : ""}">${mismatch ? "ATTENZIONE: " : ""}Previsto: ${esc(expected)} · Portato: ${esc(item.painter || "-")}${mismatch ? " - DA CONTROLLARE" : " - corretto"}</small>` : `<small>Nessun verniciatore assegnato nella scheda cliente.</small>`}
       </span>
       <div class="paint-actions">
+        ${related ? `<button class="secondary fit open-paint-client" type="button" data-client="${related.client_id}">Apri scheda cliente</button>` : ""}
         <select class="paint-status-select" data-id="${item.id}">
           ${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${(item.material_status || "consegnato") === key ? "selected" : ""}>${label}</option>`).join("")}
         </select>
@@ -290,6 +318,7 @@ function paintingView() {
     <div class="kpi-grid paint-kpis">
       ${paintKpi("Tutti", rows.length, "▦", "all")}
       ${paintKpi("Movimenti aperti", openRows.length, "🎨", "open", openRows.length > 0)}
+      ${paintKpi("Materiale ritirato", collectedRows.length, "🏭", "collected")}
       ${paintKpi("Da controllare", uncheckedRows.length, "⚠️", "unchecked", uncheckedRows.length > 0)}
       ${paintKpi("Errori verniciatore", mismatchRows.length, "!", "mismatch", mismatchRows.length > 0)}
       ${paintKpi("Senza foto", noPhotoRows.length, "📷", "no_photo", noPhotoRows.length > 0)}
@@ -308,6 +337,7 @@ function adminView() { return `${titleBlock("Amministrazione")}<div class="dashb
 function bindView() {
   document.querySelector("#new-client")?.addEventListener("click", newClientModal); document.querySelectorAll(".paint-filter").forEach((button) => button.onclick = () => { state.paintFilter = button.dataset.paintFilter || "all"; state.view = "painting"; renderAdmin(); }); document.querySelectorAll(".kpi-action:not(.paint-filter)").forEach((button) => button.onclick = () => { state.quickFilter = button.dataset.filter || ""; state.view = "clients"; renderAdmin(); });
   document.querySelector("#new-paint-delivery")?.addEventListener("click", manualPaintingDeliveryModal);
+  document.querySelectorAll(".open-paint-client").forEach((button) => button.onclick = () => { state.selectedId = button.dataset.client; state.view = "clients"; renderAdmin(); });
   document.querySelectorAll(".open-client").forEach((button) => button.onclick = () => { state.selectedId = button.dataset.client; state.view = "clients"; renderAdmin(); });
   document.querySelectorAll(".check-paint").forEach((button) => button.onclick = () => {
     const correction = document.querySelector(`.paint-correct-select[data-id="${button.dataset.id}"]`)?.value || "";
@@ -506,6 +536,7 @@ async function markPaintingChecked(id, correctedPainter = "") {
     return notice(`ATTENZIONE: previsto ${check.expected}, selezionato ${check.actual}. Scegli il verniciatore corretto e poi approva.`, "error");
   }
   const patch = { checked: true, checked_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  if (delivery.material_status === "ritirato") patch.material_status = "rientrato";
   if (normalizedCorrection) patch.painter = normalizedCorrection;
   const { data, error } = await supabase.from("painting_deliveries").update(patch).eq("id", id).select().single();
   if (error) return notice(error.message, "error");
