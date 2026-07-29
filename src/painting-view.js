@@ -55,7 +55,7 @@ async function showPaintingView() {
   }
 
   const clientMap = new Map((clients || []).map((client) => [client.id, client.name]));
-  const paintingJobs = (jobs || []).filter((job) => job.has_painting || job.painter || job.current_step === "verniciatura");
+  const paintingJobs = (jobs || []).filter((job) => job.current_step === "verniciatura");
   const assigned = paintingJobs.filter((job) => job.painter);
   const unassigned = paintingJobs.filter((job) => !job.painter);
 
