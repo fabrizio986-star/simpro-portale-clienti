@@ -8,6 +8,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         capofficina: resolve(__dirname, "capofficina.html"),
+        officina: resolve(__dirname, "officina.html"),
       },
     },
   },
