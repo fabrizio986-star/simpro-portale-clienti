@@ -92,6 +92,20 @@ function deliveryPainterFor(delivery) {
   if (direct) return direct;
   return normalizePainter(expectedPaintingJob(delivery)?.painter);
 }
+function latestPaintingDeliveries(deliveries = []) {
+  const latest = new Map();
+  for (const delivery of deliveries) {
+    const job = expectedPaintingJob(delivery);
+    const code = String(delivery.job_code || "").trim().toLowerCase();
+    const client = String(delivery.client_name || "").trim().toLowerCase();
+    const key = job?.id ? `job:${job.id}` : (code ? `code:${code}` : `client:${client || delivery.id}`);
+    const previous = latest.get(key);
+    if (!previous || new Date(delivery.created_at || delivery.updated_at || 0) > new Date(previous.created_at || previous.updated_at || 0)) {
+      latest.set(key, delivery);
+    }
+  }
+  return [...latest.values()];
+}
 async function compressImage(file, maxSize = 1600, quality = 0.78) {
   const originalName = String(file.name || "foto.jpg");
   const name = originalName.toLowerCase();
@@ -255,7 +269,7 @@ function clientDetail(client, jobs, reminders) { return `<div class="detail-head
 
 function paintingView() {
   const link = new URL(CLIENT_PORTAL_URL); link.searchParams.set("autista", "1");
-  const rows = state.paintDeliveries;
+  const rows = latestPaintingDeliveries(state.paintDeliveries);
   const activeRows = rows.filter(isMaterialAtPainter);
   const readyRows = rows.filter((item) => !isMaterialAtPainter(item));
   const openRows = activeRows.filter((item) => !item.checked);
