@@ -7,7 +7,6 @@ const supabase = createClient(
 );
 
 const root = document.querySelector("#root");
-const OFFICE_EMAIL = "officina@simprolamiere.it";
 const PAINTERS = ["DAMAS", "SOSAM", "METALLIKA", "GALLO"];
 const esc = (value = "") => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
 const formatDate = (value) => value ? new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" }).format(new Date(value)) : "—";
@@ -17,22 +16,8 @@ function logo() {
   return '<img class="office-logo" src="https://www.simprolamiere.it/wp-content/uploads/2024/07/logo-simpro-128x128.png" alt="SIMPRO Lamiere">';
 }
 
-function loginPage(message = "") {
-  root.innerHTML = `<main class="office-login"><form id="office-login-form" class="office-login-card">${logo()}<span>ACCESSO OFFICINA</span><h1>Situazione verniciature</h1><p>Accesso riservato al tablet dell'officina.</p><label>Email<input name="email" type="email" value="${OFFICE_EMAIL}" readonly></label><label>Password<input name="password" type="password" minlength="8" required autocomplete="current-password"></label><div id="office-message" class="office-message">${esc(message)}</div><button type="submit">Accedi</button><button type="button" class="secondary" id="office-signup">Crea accesso / reimposta account</button></form></main>`;
-  const form = document.querySelector("#office-login-form");
-  form.onsubmit = async (event) => {
-    event.preventDefault();
-    const password = new FormData(form).get("password");
-    const { error } = await supabase.auth.signInWithPassword({ email: OFFICE_EMAIL, password });
-    if (error) return loginPage(error.message);
-    officePage();
-  };
-  document.querySelector("#office-signup").onclick = async () => {
-    const password = String(new FormData(form).get("password") || "");
-    if (password.length < 8) return loginPage("Inserisci prima una password di almeno 8 caratteri.");
-    const { error } = await supabase.auth.signUp({ email: OFFICE_EMAIL, password });
-    loginPage(error ? error.message : "Accesso creato. Controlla la casella email e conferma il collegamento.");
-  };
+function errorPage(message) {
+  root.innerHTML = `<main class="office-login"><section class="office-login-card">${logo()}<span>ACCESSO OFFICINA</span><h1>Link non valido</h1><p>${esc(message)}</p></section></main>`;
 }
 
 function latestByJob(deliveries, jobs, clients) {
@@ -62,36 +47,31 @@ function officeCard(item, jobs, clients) {
 }
 
 async function officePage() {
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user || String(auth.user.email || "").toLowerCase() !== OFFICE_EMAIL) {
-    await supabase.auth.signOut();
-    return loginPage("Questo accesso è riservato all'account officina.");
-  }
+  const token = new URLSearchParams(window.location.search).get("accesso");
+  if (!token) return errorPage("Apri il collegamento riservato fornito da SIMPRO.");
   root.innerHTML = '<div class="office-loading">Caricamento situazione verniciature…</div>';
-  const [{ data: clients, error: clientsError }, { data: jobs, error: jobsError }, { data: deliveries, error: deliveriesError }] = await Promise.all([
-    supabase.from("clients").select("id,name"),
-    supabase.from("jobs").select("id,client_id,title,code,current_step,painter,has_painting,updated_at,completed_at").is("completed_at", null),
-    supabase.from("painting_deliveries").select("*").order("created_at", { ascending: false }).limit(300),
-  ]);
-  if (clientsError || jobsError || deliveriesError) return loginPage("Accesso non ancora autorizzato. Esegui la configurazione dell'account officina.");
 
-  const latest = latestByJob(deliveries || [], jobs || [], clients || []);
-  const plannedJobs = (jobs || []).filter((job) => job.has_painting && job.painter && !latest.some((item) => String(item.job_code || "").trim().toLowerCase() === String(job.code || "").trim().toLowerCase()));
-  const planned = plannedJobs.map((job) => ({ id: `job-${job.id}`, job_code: job.code, client_name: (clients || []).find((client) => client.id === job.client_id)?.name, painter: job.painter, material_status: "da_portare", updated_at: job.updated_at }));
+  const { data, error } = await supabase.rpc("get_officina_board", { p_token: token });
+  if (error || !data?.ok) return errorPage("Il collegamento non è valido oppure è stato disattivato.");
+
+  const clients = data.clients || [];
+  const jobs = data.jobs || [];
+  const deliveries = data.deliveries || [];
+  const latest = latestByJob(deliveries, jobs, clients);
+  const plannedJobs = jobs.filter((job) => job.has_painting && job.painter && !latest.some((item) => String(item.job_code || "").trim().toLowerCase() === String(job.code || "").trim().toLowerCase()));
+  const planned = plannedJobs.map((job) => ({ id: `job-${job.id}`, job_code: job.code, client_name: clients.find((client) => client.id === job.client_id)?.name, painter: job.painter, material_status: "da_portare", updated_at: job.updated_at }));
   const rows = [...planned, ...latest].filter((item) => item.material_status !== "rientrato");
   const toTake = rows.filter((item) => item.material_status === "da_portare");
   const delivered = rows.filter((item) => ["in_viaggio", "consegnato"].includes(item.material_status || "consegnato"));
   const toCollect = rows.filter((item) => item.material_status === "ritirato");
 
-  const section = (title, items, className) => `<section class="office-section ${className}"><div class="office-section-title"><h2>${title}</h2><span>${items.length}</span></div><div class="office-grid">${items.length ? items.map((item) => officeCard(item, jobs || [], clients || [])).join("") : '<div class="office-empty">Nessuna lavorazione.</div>'}</div></section>`;
-  root.innerHTML = `<header class="office-header">${logo()}<div><small>TABLET OFFICINA</small><h1>Verniciature</h1></div><button id="office-refresh">Aggiorna</button><button id="office-logout" class="secondary">Esci</button></header><main class="office-wrap"><div class="office-kpis"><div><small>Da portare</small><strong>${toTake.length}</strong></div><div><small>Dal verniciatore</small><strong>${delivered.length}</strong></div><div><small>Da ritirare</small><strong>${toCollect.length}</strong></div></div><label class="office-search">Cerca cliente o commessa<input id="office-search" type="search" placeholder="Scrivi nome o numero commessa"></label>${section("Da portare in verniciatura", toTake, "to-take")}${section("Consegnate ai verniciatori", delivered, "delivered")}${section("Da ritirare / rientrare", toCollect, "to-collect")}<section class="office-painters"><h2>Riepilogo per verniciatore</h2>${PAINTERS.map((painter) => `<div><span>${painter}</span><strong>${rows.filter((item) => normalize(item.painter) === painter).length}</strong></div>`).join("")}</section></main>`;
+  const section = (title, items, className) => `<section class="office-section ${className}"><div class="office-section-title"><h2>${title}</h2><span>${items.length}</span></div><div class="office-grid">${items.length ? items.map((item) => officeCard(item, jobs, clients)).join("") : '<div class="office-empty">Nessuna lavorazione.</div>'}</div></section>`;
+  root.innerHTML = `<header class="office-header">${logo()}<div><small>TABLET OFFICINA</small><h1>Verniciature</h1></div><button id="office-refresh">Aggiorna</button></header><main class="office-wrap"><div class="office-kpis"><div><small>Da portare</small><strong>${toTake.length}</strong></div><div><small>Dal verniciatore</small><strong>${delivered.length}</strong></div><div><small>Da ritirare</small><strong>${toCollect.length}</strong></div></div><label class="office-search">Cerca cliente o commessa<input id="office-search" type="search" placeholder="Scrivi nome o numero commessa"></label>${section("Da portare in verniciatura", toTake, "to-take")}${section("Consegnate ai verniciatori", delivered, "delivered")}${section("Da ritirare / rientrare", toCollect, "to-collect")}<section class="office-painters"><h2>Riepilogo per verniciatore</h2>${PAINTERS.map((painter) => `<div><span>${painter}</span><strong>${rows.filter((item) => normalize(item.painter) === painter).length}</strong></div>`).join("")}</section></main>`;
   document.querySelector("#office-refresh").onclick = officePage;
-  document.querySelector("#office-logout").onclick = () => supabase.auth.signOut().then(() => loginPage());
   document.querySelector("#office-search").oninput = (event) => {
     const query = event.target.value.trim().toLowerCase();
     document.querySelectorAll(".office-card").forEach((card) => card.hidden = !card.dataset.search.includes(query));
   };
 }
 
-const { data } = await supabase.auth.getSession();
-data.session ? officePage() : loginPage();
+officePage();
