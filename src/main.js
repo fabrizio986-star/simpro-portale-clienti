@@ -108,6 +108,21 @@ function deliveryPainterFor(delivery) {
   if (direct) return direct;
   return normalizePainter(expectedPaintingJob(delivery)?.painter);
 }
+function relatedPaintingDeliveryIds(delivery) {
+  const job = expectedPaintingJob(delivery);
+  const code = String(delivery?.job_code || "").trim().toLowerCase();
+  const client = String(delivery?.client_name || "").trim().toLowerCase();
+  return state.paintDeliveries
+    .filter((item) => {
+      if (String(item.id) === String(delivery?.id)) return true;
+      const itemJob = expectedPaintingJob(item);
+      if (job?.id && itemJob?.id && String(itemJob.id) === String(job.id)) return true;
+      const itemCode = String(item.job_code || "").trim().toLowerCase();
+      const itemClient = String(item.client_name || "").trim().toLowerCase();
+      return Boolean(code && itemCode === code && (!client || itemClient === client));
+    })
+    .map((item) => item.id);
+}
 function latestPaintingDeliveries(deliveries = []) {
   const latest = new Map();
   for (const delivery of deliveries) {
@@ -806,14 +821,19 @@ async function markPaintingChecked(id, correctedPainter = "") {
 }
 async function updatePaintingStatus(id, material_status) {
   const delivery = state.paintDeliveries.find((item) => String(item.id) === String(id));
+  if (!delivery) return notice("Movimento non trovato.", "error");
   const check = paintingMismatch(delivery);
   const patch = { material_status, updated_at: new Date().toISOString() };
   if (check.mismatch) patch.checked = false;
   if (material_status === "rientrato") { patch.checked = true; patch.checked_at = new Date().toISOString(); }
-  const { data, error } = await supabase.from("painting_deliveries").update(patch).eq("id", id).select().single();
+  const relatedIds = relatedPaintingDeliveryIds(delivery);
+  const { data, error } = await supabase.from("painting_deliveries").update(patch).in("id", relatedIds).select();
   if (error) return notice(error.message, "error");
+  if (!data?.length) return notice("Stato non salvato: nessun movimento aggiornato.", "error");
+  state.paintDeliveries = state.paintDeliveries.map((item) => relatedIds.includes(item.id) ? { ...item, ...patch } : item);
+  const syncedDelivery = data.find((item) => String(item.id) === String(id)) || { ...delivery, ...patch };
   try {
-    const result = await syncPaintingDeliveryToJob(data || { ...delivery, ...patch });
+    const result = await syncPaintingDeliveryToJob(syncedDelivery);
     await logAction("painting_delivery", id, "status", `Stato verniciatura aggiornato: ${paintStatuses[material_status] || material_status}`);
     notice(check.mismatch ? `ATTENZIONE: previsto ${check.expected}, portato a ${check.actual}. Movimento da controllare.` : (result.synced ? "Stato verniciatura e scheda cliente aggiornati." : result.message), check.mismatch ? "error" : (result.synced ? "ok" : "error"));
   } catch (error) {
