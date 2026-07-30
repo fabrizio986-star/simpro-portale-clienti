@@ -96,3 +96,13 @@
   font-weight: 800;
   white-space: nowrap;
 }
+
+
+.reminder-row.delivery-reminder {
+  border: 1px solid #f0d681;
+  background: #fff8df;
+}
+
+.reminder-row.delivery-reminder strong {
+  color: #7a5a00;
+}
