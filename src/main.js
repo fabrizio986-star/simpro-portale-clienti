@@ -170,9 +170,24 @@ async function uploadJobDocument(job, file, label = "") {
   const path = `documents/${job.id}/${crypto.randomUUID()}-${safeName}`;
   const { error: uploadError } = await supabase.storage.from("job-documents").upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
   if (uploadError) throw new Error(`Caricamento documento fallito: ${uploadError.message}`);
-  const url = supabase.storage.from("job-documents").getPublicUrl(path).data.publicUrl;
-  const { error } = await supabase.from("job_documents").insert({ job_id: job.id, storage_path: path, url, file_name: file.name, label: label || file.name });
+  const { error } = await supabase.from("job_documents").insert({ job_id: job.id, storage_path: path, url: "", file_name: file.name, label: label || file.name });
   if (error) throw new Error(`Documento caricato ma non collegato alla commessa: ${error.message}`);
+}
+
+async function openClientDocument(token, documentId) {
+  const { data, error } = await supabase.functions.invoke("secure-job-document", {
+    body: { token, document_id: documentId },
+  });
+  if (error || !(data instanceof Blob)) throw new Error("Documento non disponibile o accesso scaduto.");
+  const objectUrl = URL.createObjectURL(data);
+  window.open(objectUrl, "_blank", "noopener");
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+}
+
+async function openAdminDocument(path) {
+  const { data, error } = await supabase.storage.from("job-documents").createSignedUrl(path, 60);
+  if (error || !data?.signedUrl) throw new Error("Non è stato possibile aprire il documento.");
+  window.open(data.signedUrl, "_blank", "noopener");
 }
 
 async function enablePhoneNotifications() {
@@ -228,6 +243,12 @@ async function clientPage(token) {
   root.innerHTML = `<header class="topbar">${logo(false)}<div class="account"><small>Area personale</small><strong>${esc(client.name)}</strong></div></header><main class="client-wrap"><section class="welcome"><span class="eyebrow red">LA TUA AREA PERSONALE</span><h1>Buongiorno, ${esc(client.contact_name || client.name)}</h1><p>Qui trovi lo stato aggiornato delle lavorazioni associate alla tua azienda.</p></section><section class="job-grid">${jobs.length ? jobs.map((job) => jobCard(job, photosByJob[job.id] || [], documentsByJob[job.id] || [])).join("") : `<div class="empty"><h2>Nessuna lavorazione presente</h2><p>Le nuove lavorazioni compariranno qui appena inserite da SIMPRO.</p></div>`}</section><a class="whatsapp-contact" href="${whatsappLink()}" target="_blank" rel="noopener">💬 Contattaci su WhatsApp</a><div class="privacy">🔒 Visualizzi esclusivamente le lavorazioni associate al tuo link personale.</div></main>`;
   document.querySelectorAll(".send-reminder").forEach((button) => button.onclick = () => sendReminder(token, button.dataset.job));
   document.querySelectorAll(".fulfillment-choice").forEach((button) => button.onclick = () => submitFulfillmentChoice(token, button.dataset.job, button.dataset.choice));
+  document.querySelectorAll(".open-client-document").forEach((button) => button.onclick = async () => {
+    button.disabled = true;
+    try { await openClientDocument(token, button.dataset.document); }
+    catch (error) { notice(error.message, "error"); }
+    finally { button.disabled = false; }
+  });
   clearTimeout(realtimeRefreshTimer);
   realtimeRefreshTimer = setTimeout(() => clientPage(token), 20000);
 }
@@ -238,7 +259,7 @@ function photoGallery(photos = []) {
 }
 function documentList(documents = []) {
   if (!documents.length) return "";
-  return `<div class="document-list"><div class="photo-title">DOCUMENTI</div>${documents.map((document) => `<a href="${esc(document.url)}" target="_blank" rel="noopener"><span>📄</span><strong>${esc(document.label || document.file_name || "Documento")}</strong><small>Apri</small></a>`).join("")}</div>`;
+  return `<div class="document-list"><div class="photo-title">DOCUMENTI RISERVATI</div>${documents.map((document) => `<button type="button" class="open-client-document" data-document="${document.id}"><span>📄</span><strong>${esc(document.label || document.file_name || "Documento")}</strong><small>Apri in sicurezza</small></button>`).join("")}</div>`;
 }
 function fulfillmentChoice(job) {
   if (job.fulfillment_choice) return `<div class="choice-confirmed"><strong>✓ Scelta comunicata: ${job.fulfillment_choice === "installazione" ? "Installazione SIMPRO" : "Ritiro in sede"}</strong><small>Puoi modificarla finché SIMPRO non conferma la programmazione.</small></div>`;
@@ -583,9 +604,13 @@ function adminPhotoManager(job, photos = []) {
   return `<section class="job-photo-manager"><div class="panel-title"><h3>Foto commessa</h3><span>${photos.length}</span></div><div class="admin-photo-grid">${photos.length ? photos.map((photo) => `<div class="admin-photo"><img src="${esc(photo.url)}" alt="${esc(photo.caption || "Foto commessa")}"><button type="button" class="delete-photo" data-id="${photo.id}" data-path="${esc(photo.storage_path)}">Elimina</button></div>`).join("") : `<p>Nessuna foto caricata.</p>`}</div><form id="photo-form" class="photo-upload"><label>Aggiungi foto<input name="photos" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" multiple></label><label>Didascalia facoltativa<input name="caption" placeholder="Es. Materiale rientrato dalla verniciatura"></label><button class="secondary" type="submit">Carica foto</button></form></section>`;
 }
 function adminDocumentManager(job, documents = []) {
-  return `<section class="job-document-manager"><div class="panel-title"><h3>Documenti cliente</h3><span>${documents.length}</span></div><div class="admin-document-list">${documents.length ? documents.map((document) => `<div><a href="${esc(document.url)}" target="_blank" rel="noopener">📄 ${esc(document.label || document.file_name)}</a><button type="button" class="delete-document danger fit" data-id="${document.id}" data-path="${esc(document.storage_path)}">Elimina</button></div>`).join("") : `<p>Nessun documento caricato.</p>`}</div><form id="document-form" class="document-upload"><label>Documento<input name="document" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label><label>Nome visibile al cliente<input name="label" placeholder="Es. Disegno approvato"></label><button class="secondary" type="submit">Carica documento</button></form></section>`;
+  return `<section class="job-document-manager"><div class="panel-title"><h3>Documenti cliente riservati</h3><span>${documents.length}</span></div><div class="admin-document-list">${documents.length ? documents.map((document) => `<div><button type="button" class="open-admin-document" data-path="${esc(document.storage_path)}">📄 ${esc(document.label || document.file_name)}</button><button type="button" class="delete-document danger fit" data-id="${document.id}" data-path="${esc(document.storage_path)}">Elimina</button></div>`).join("") : `<p>Nessun documento caricato.</p>`}</div><form id="document-form" class="document-upload"><label>Documento<input name="document" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label><label>Nome visibile al cliente<input name="label" placeholder="Es. Disegno approvato"></label><button class="secondary" type="submit">Carica documento</button></form></section>`;
 }
 function bindDocumentManager(job) {
+  document.querySelectorAll(".open-admin-document").forEach((button) => button.onclick = async () => {
+    try { await openAdminDocument(button.dataset.path); }
+    catch (error) { notice(error.message, "error"); }
+  });
   document.querySelector("#document-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget; const file = form.document.files?.[0];
