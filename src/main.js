@@ -329,28 +329,6 @@ async function adminPage() {
   ]);
   if (results[0].error || results[1].error || results[2].error) { root.innerHTML = `<main class="not-found">${logo()}<h1>Configurazione necessaria</h1><p>Esegui nel SQL Editor di Supabase il file <strong>supabase/migrations/20260727_portal_management.sql</strong>.</p><button class="primary fit" id="logout">Esci</button></main>`; document.querySelector("#logout").onclick = () => supabase.auth.signOut().then(loginPage); return; }
   state.clients = results[0].data || []; state.jobs = results[1].data || []; state.reminders = results[2].data || []; state.audit = results[3].data || []; state.paintDeliveries = results[4].data || []; state.jobPhotos = results[5].data || []; state.jobDocuments = results[6].data || []; state.selectedId ||= state.clients[0]?.id || null;
-  const approvedPickups = state.paintDeliveries.filter((item) => {
-    const job = findPaintingJob(item);
-    return item.checked && item.material_status === "ritirato" && job?.current_step !== "controllo";
-  });
-  if (approvedPickups.length) {
-    const ids = approvedPickups.map((item) => item.id);
-    const updatedAt = new Date().toISOString();
-    const { error: pickupError } = await supabase.from("painting_deliveries").update({ material_status: "rientrato", updated_at: updatedAt }).in("id", ids);
-    if (!pickupError) {
-      state.paintDeliveries = state.paintDeliveries.map((item) => ids.includes(item.id) ? { ...item, material_status: "rientrato", updated_at: updatedAt } : item);
-      for (const delivery of state.paintDeliveries.filter((item) => ids.includes(item.id))) {
-        try { await syncPaintingDeliveryToJob(delivery); } catch (error) { console.error(error); }
-      }
-    }
-  }
-  const readyDeliveries = state.paintDeliveries.filter((item) => item.material_status === "rientrato");
-  for (const delivery of readyDeliveries) {
-    const job = findPaintingJob(delivery);
-    if (job && !["pronto_ritiro", "controllo"].includes(job.current_step) && isDeliveryNewerThanJob(delivery, job)) {
-      try { await syncPaintingDeliveryToJob(delivery); } catch (error) { console.error(error); }
-    }
-  }
   renderAdmin();
   subscribeAdminRealtime();
 }
