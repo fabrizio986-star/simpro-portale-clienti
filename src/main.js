@@ -59,6 +59,7 @@ const paintStatuses = {
   controllo: "Controllo qualità",
   rientrato: "Rientrato in officina"
 };
+const dbMaterialStatus = (value) => value === "controllo" ? "ritirato" : value;
 const isMaterialAtPainter = (delivery) => {
   const status = delivery?.material_status || "consegnato";
   return status !== "rientrato" && !(status === "ritirato" && delivery?.checked);
@@ -107,6 +108,11 @@ function deliveryPainterFor(delivery) {
   const direct = normalizePainter(delivery?.painter);
   if (direct) return direct;
   return normalizePainter(expectedPaintingJob(delivery)?.painter);
+}
+function paintingStatusValue(delivery) {
+  const job = expectedPaintingJob(delivery);
+  if (job?.current_step === "controllo") return "controllo";
+  return delivery?.material_status || "consegnato";
 }
 function relatedPaintingDeliveryIds(delivery) {
   const job = expectedPaintingJob(delivery);
@@ -415,7 +421,7 @@ function paintingView() {
     const laneRows = rows.filter((item) => deliveryPainterFor(item) === painter && isMaterialAtPainter(item));
     const cards = laneRows.slice(0, 8).map((item) => {
       const check = paintingMismatch(item);
-      const status = statusLabel(item.material_status);
+      const status = statusLabel(paintingStatusValue(item));
       return `<button class="painter-lane-card paint-filter ${check.mismatch || !item.checked ? "attention" : ""}" type="button" data-paint-filter="painter:${esc(painter)}">
         <strong>${esc(item.client_name || "Cliente")}</strong>
         <small>${esc(item.job_code || "Senza codice")} · ${esc(status)}</small>
@@ -438,7 +444,7 @@ function paintingView() {
       ${item.photo_url ? `<a class="paint-photo" href="${esc(item.photo_url)}" target="_blank" rel="noopener"><img src="${esc(item.photo_url)}" alt="Foto verniciatura"></a>` : `<div class="paint-photo empty-photo">No foto</div>`}
       <span>
         <strong>${esc(item.client_name)}${item.job_code ? ` · ${esc(item.job_code)}` : ""}</strong>
-        <small><b>${esc(statusLabel(item.material_status))}</b> · ${esc(deliveryPainterFor(item) || item.painter || "Verniciatore non indicato")} · ${formatDate(item.created_at)}</small>
+        <small><b>${esc(statusLabel(paintingStatusValue(item)))}</b> · ${esc(deliveryPainterFor(item) || item.painter || "Verniciatore non indicato")} · ${formatDate(item.created_at)}</small>
         ${item.driver_name ? `<small>Autista: ${esc(item.driver_name)}</small>` : ""}
         ${item.notes ? `<small>Note: ${esc(item.notes)}</small>` : ""}
         ${expected ? `<small class="${mismatch ? "paint-warning" : ""}">${mismatch ? "ATTENZIONE: " : ""}Previsto: ${esc(expected)} · Portato: ${esc(item.painter || "-")}${mismatch ? " - DA CONTROLLARE" : " - corretto"}</small>` : `<small>Nessun verniciatore assegnato nella scheda cliente.</small>`}
@@ -447,7 +453,7 @@ function paintingView() {
         ${related ? `<button class="secondary fit open-paint-client" type="button" data-client="${related.client_id}">Apri scheda cliente</button>` : ""}
         <button class="secondary fit correct-paint" type="button" data-id="${item.id}">Correggi</button>
         <select class="paint-status-select" data-id="${item.id}">
-          ${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${(item.material_status || "consegnato") === key ? "selected" : ""}>${label}</option>`).join("")}
+          ${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${paintingStatusValue(item) === key ? "selected" : ""}>${label}</option>`).join("")}
         </select>
         ${mismatch ? `<label class="paint-correct-label">Verniciatore corretto<select class="paint-correct-select" data-id="${item.id}">${painters.map((value) => `<option value="${value}" ${value === expected ? "selected" : ""}>${value}</option>`).join("")}</select></label>` : ""}
         <button class="secondary fit check-paint" data-id="${item.id}">${mismatch ? "Approva con correzione" : (item.checked ? "Controllato" : "Segna controllato")}</button>
@@ -663,11 +669,12 @@ function correctionPaintingDeliveryModal(id) {
     const client = state.clients.find((item) => item.id === job.client_id);
     const now = new Date().toISOString();
     const materialStatus = form.material_status.value;
+    const storedMaterialStatus = dbMaterialStatus(materialStatus);
     const patch = {
       job_code: job.code || "",
       client_name: client?.name || job.title,
       painter: form.painter.value,
-      material_status: materialStatus,
+      material_status: storedMaterialStatus,
       notes: String(form.notes.value || "").trim(),
       checked: true,
       checked_at: now,
@@ -681,7 +688,7 @@ function correctionPaintingDeliveryModal(id) {
         normalizeJobData(reset);
         await supabase.from("jobs").update({ current_step: reset.current_step, progress: reset.progress, phase: reset.phase, updated_at: now }).eq("id", currentJob.id);
       }
-      const result = await syncPaintingDeliveryToJob(data || { ...delivery, ...patch });
+      const result = await syncPaintingDeliveryToJob({ ...(data || { ...delivery, ...patch }), material_status: materialStatus });
       await logAction("painting_delivery", id, "correct", `Corretto movimento autista su ${job.code || job.title}: ${paintStatuses[materialStatus] || materialStatus}`);
       closeModal();
       notice(result.synced ? "Movimento corretto e scheda cliente aggiornata." : result.message, result.synced ? "ok" : "error");
@@ -823,15 +830,16 @@ async function updatePaintingStatus(id, material_status) {
   const delivery = state.paintDeliveries.find((item) => String(item.id) === String(id));
   if (!delivery) return notice("Movimento non trovato.", "error");
   const check = paintingMismatch(delivery);
-  const patch = { material_status, updated_at: new Date().toISOString() };
+  const storedMaterialStatus = dbMaterialStatus(material_status);
+  const patch = { material_status: storedMaterialStatus, updated_at: new Date().toISOString() };
   if (check.mismatch) patch.checked = false;
-  if (material_status === "rientrato") { patch.checked = true; patch.checked_at = new Date().toISOString(); }
+  if (["controllo", "rientrato"].includes(material_status)) { patch.checked = true; patch.checked_at = new Date().toISOString(); }
   const relatedIds = relatedPaintingDeliveryIds(delivery);
   const { data, error } = await supabase.from("painting_deliveries").update(patch).in("id", relatedIds).select();
   if (error) return notice(error.message, "error");
   if (!data?.length) return notice("Stato non salvato: nessun movimento aggiornato.", "error");
   state.paintDeliveries = state.paintDeliveries.map((item) => relatedIds.includes(item.id) ? { ...item, ...patch } : item);
-  const syncedDelivery = data.find((item) => String(item.id) === String(id)) || { ...delivery, ...patch };
+  const syncedDelivery = { ...(data.find((item) => String(item.id) === String(id)) || { ...delivery, ...patch }), material_status };
   try {
     const result = await syncPaintingDeliveryToJob(syncedDelivery);
     await logAction("painting_delivery", id, "status", `Stato verniciatura aggiornato: ${paintStatuses[material_status] || material_status}`);
