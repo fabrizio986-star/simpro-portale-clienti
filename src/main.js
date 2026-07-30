@@ -130,6 +130,10 @@ function relatedPaintingDeliveryIds(delivery) {
     })
     .map((item) => item.id);
 }
+function isDeliveryNewerThanJob(delivery, job) {
+  if (!delivery?.updated_at || !job?.updated_at) return true;
+  return new Date(delivery.updated_at).getTime() >= new Date(job.updated_at).getTime();
+}
 function latestPaintingDeliveries(deliveries = []) {
   const latest = new Map();
   for (const delivery of deliveries) {
@@ -339,7 +343,7 @@ async function adminPage() {
   const readyDeliveries = state.paintDeliveries.filter((item) => item.material_status === "rientrato");
   for (const delivery of readyDeliveries) {
     const job = findPaintingJob(delivery);
-    if (job && job.current_step !== "pronto_ritiro") {
+    if (job && !["pronto_ritiro", "controllo"].includes(job.current_step) && isDeliveryNewerThanJob(delivery, job)) {
       try { await syncPaintingDeliveryToJob(delivery); } catch (error) { console.error(error); }
     }
   }
