@@ -328,7 +328,10 @@ async function adminPage() {
   ]);
   if (results[0].error || results[1].error || results[2].error) { root.innerHTML = `<main class="not-found">${logo()}<h1>Configurazione necessaria</h1><p>Esegui nel SQL Editor di Supabase il file <strong>supabase/migrations/20260727_portal_management.sql</strong>.</p><button class="primary fit" id="logout">Esci</button></main>`; document.querySelector("#logout").onclick = () => supabase.auth.signOut().then(loginPage); return; }
   state.clients = results[0].data || []; state.jobs = results[1].data || []; state.reminders = results[2].data || []; state.audit = results[3].data || []; state.paintDeliveries = results[4].data || []; state.jobPhotos = results[5].data || []; state.jobDocuments = results[6].data || []; state.selectedId ||= state.clients[0]?.id || null;
-  const approvedPickups = state.paintDeliveries.filter((item) => item.checked && item.material_status === "ritirato");
+  const approvedPickups = state.paintDeliveries.filter((item) => {
+    const job = findPaintingJob(item);
+    return item.checked && item.material_status === "ritirato" && job?.current_step !== "controllo";
+  });
   if (approvedPickups.length) {
     const ids = approvedPickups.map((item) => item.id);
     const updatedAt = new Date().toISOString();
@@ -681,8 +684,8 @@ function correctionPaintingDeliveryModal(id) {
       painter: form.painter.value,
       material_status: storedMaterialStatus,
       notes: String(form.notes.value || "").trim(),
-      checked: true,
-      checked_at: now,
+      checked: materialStatus !== "controllo",
+      checked_at: materialStatus === "controllo" ? null : now,
       updated_at: now
     };
     const { data, error } = await supabase.from("painting_deliveries").update(patch).eq("id", id).select().single();
@@ -838,7 +841,8 @@ async function updatePaintingStatus(id, material_status) {
   const storedMaterialStatus = dbMaterialStatus(material_status);
   const patch = { material_status: storedMaterialStatus, updated_at: new Date().toISOString() };
   if (check.mismatch) patch.checked = false;
-  if (["controllo", "rientrato"].includes(material_status)) { patch.checked = true; patch.checked_at = new Date().toISOString(); }
+  if (material_status === "controllo") { patch.checked = false; patch.checked_at = null; }
+  if (material_status === "rientrato") { patch.checked = true; patch.checked_at = new Date().toISOString(); }
   const relatedIds = relatedPaintingDeliveryIds(delivery);
   const { data, error } = await supabase.from("painting_deliveries").update(patch).in("id", relatedIds).select();
   if (error) return notice(error.message, "error");
