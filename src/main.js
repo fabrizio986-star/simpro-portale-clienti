@@ -760,8 +760,10 @@ async function deletePaintingDelivery(id) {
 async function regenerateLink(clientId) { if (!confirm("Il vecchio link smetterà immediatamente di funzionare. Continuare?")) return; const token = crypto.randomUUID(); const { error } = await supabase.from("clients").update({ access_token: token }).eq("id", clientId); if (error) return notice(error.message, "error"); await navigator.clipboard.writeText(clientLink(token)); await logAction("client", clientId, "link", "Rigenerato link personale cliente"); notice("Nuovo link generato e copiato."); adminPage(); }
 
 async function driverPage() {
-  root.innerHTML = `<main class="driver-page"><section class="driver-card">${logo(false)}<span class="eyebrow red">ACCESSO AUTISTA</span><h1>Cerca commessa</h1><p>Cerca prima il cliente o il numero commessa, poi seleziona il lavoro corretto.</p><div class="driver-search"><label>Cerca cliente o commessa<input id="driver-search-input" type="search" placeholder="Es. Rossi, COM-2026-001"></label><div id="driver-search-results" class="driver-search-results"><div class="empty small"><p>Scrivi almeno 2 lettere o numeri per cercare.</p></div></div></div><form id="driver-form"><label>Codice cliente o commessa<input name="job_code" placeholder="Es. COM-2026-001"></label><label>Nome cliente<input name="client_name" required placeholder="Es. Rossi Srl"></label><label>Verniciatore<select name="painter" required><option value="">Seleziona</option>${painters.map((value) => `<option>${value}</option>`).join("")}</select></label><label>Stato materiale<select name="material_status" required>${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${key === "consegnato" ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Nome autista<input name="driver_name" placeholder="Facoltativo"></label><label>Foto commessa<input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" capture="environment"><small>Obbligatoria solo quando porti/consegni il materiale. Si apre direttamente la fotocamera.</small></label><label>Note<textarea name="notes" rows="3" placeholder="Facoltativo"></textarea></label><div id="driver-selected-job" class="driver-selected-job" hidden></div><div id="driver-message" class="form-message"></div><button class="primary" type="submit">Registra movimento <span>→</span></button></form></section><section class="driver-card driver-situation"><div class="panel-title"><h2>Situazione materiale</h2><button class="secondary fit" id="driver-refresh" type="button">Aggiorna</button></div><div id="driver-list" class="driver-list"><div class="loading-inline">Caricamento movimenti...</div></div></section></main>`;
+  root.innerHTML = `<main class="driver-page"><section class="driver-card">${logo(false)}<span class="eyebrow red">ACCESSO AUTISTA</span><h1>Cerca commessa</h1><p>Cerca prima il cliente o il numero commessa, poi seleziona il lavoro corretto.</p><div class="driver-search"><label>Cerca cliente o commessa<input id="driver-search-input" type="search" placeholder="Es. Rossi, COM-2026-001"></label><div id="driver-search-results" class="driver-search-results"><div class="empty small"><p>Scrivi almeno 2 lettere o numeri per cercare.</p></div></div></div><form id="driver-form"><label>Codice cliente o commessa<input name="job_code" placeholder="Es. COM-2026-001"></label><label>Nome cliente<input name="client_name" required placeholder="Es. Rossi Srl"></label><label>Verniciatore<select name="painter" required><option value="">Seleziona</option>${painters.map((value) => `<option>${value}</option>`).join("")}</select></label><label>Stato materiale<select name="material_status" required>${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${key === "consegnato" ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>Nome autista<input name="driver_name" placeholder="Facoltativo"></label><label>Foto commessa<input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" capture="environment"><small>Obbligatoria solo quando porti/consegni il materiale. Si apre direttamente la fotocamera.</small></label><label>Note<textarea name="notes" rows="3" placeholder="Facoltativo"></textarea></label><div id="driver-selected-job" class="driver-selected-job" hidden></div><div id="driver-message" class="form-message"></div><button class="primary" type="submit">Registra movimento <span>→</span></button></form></section><section class="driver-card driver-situation"><div class="panel-title"><div><span class="eyebrow red">RITIRI</span><h2>Cosa devo prendere?</h2></div><button class="secondary fit" id="driver-refresh" type="button">Aggiorna</button></div><p class="driver-pickup-help">Clicca sul verniciatore per vedere i pezzi da ritirare.</p><div id="driver-painter-buttons" class="driver-painter-buttons"></div><div id="driver-pickup-title" class="driver-pickup-title"></div><div id="driver-list" class="driver-list"><div class="loading-inline">Caricamento ritiri...</div></div></section></main>`;
   let searchableJobs = [];
+  let pickupRows = [];
+  let selectedPainter = painters[0];
   const form = document.querySelector("#driver-form");
   const searchInput = document.querySelector("#driver-search-input");
   const resultsNode = document.querySelector("#driver-search-results");
@@ -787,10 +789,46 @@ async function driverPage() {
     });
   };
 
+  const selectPickup = (item) => {
+    form.job_code.value = item.job_code || "";
+    form.client_name.value = item.client_name || "";
+    form.painter.value = normalizePainter(item.painter);
+    form.material_status.value = "ritirato";
+    selectedNode.hidden = false;
+    selectedNode.innerHTML = `<strong>Da ritirare:</strong> ${esc(item.client_name || "Cliente")} · ${esc(item.job_code || "Senza codice")}<br><small>${esc(normalizePainter(item.painter))} · stato impostato su “Ritirato dal verniciatore”</small>`;
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const renderPickups = () => {
+    const buttons = document.querySelector("#driver-painter-buttons");
+    const list = document.querySelector("#driver-list");
+    const title = document.querySelector("#driver-pickup-title");
+    buttons.innerHTML = painters.map((painter) => {
+      const count = pickupRows.filter((item) => normalizePainter(item.painter) === painter).length;
+      return `<button class="driver-painter-button ${selectedPainter === painter ? "active" : ""}" type="button" data-painter="${painter}"><span>${painter}</span><strong>${count}</strong></button>`;
+    }).join("");
+    buttons.querySelectorAll(".driver-painter-button").forEach((button) => button.onclick = () => {
+      selectedPainter = button.dataset.painter;
+      renderPickups();
+    });
+    const filtered = pickupRows.filter((item) => normalizePainter(item.painter) === selectedPainter);
+    title.innerHTML = `<strong>${esc(selectedPainter)}</strong><span>${filtered.length} ${filtered.length === 1 ? "pezzo da ritirare" : "pezzi da ritirare"}</span>`;
+    list.innerHTML = filtered.length ? filtered.map((item) => `<button class="driver-pickup-row" type="button" data-id="${esc(item.id)}"><span><strong>${esc(item.client_name || "Cliente non indicato")}</strong><small>Commessa: ${esc(item.job_code || "senza codice")}</small>${item.notes ? `<p>${esc(item.notes)}</p>` : ""}</span><b>RITIRA →</b></button>`).join("") : `<div class="empty small"><p>Nessun materiale da ritirare da ${esc(selectedPainter)}.</p></div>`;
+    list.querySelectorAll(".driver-pickup-row").forEach((button) => button.onclick = () => {
+      const item = pickupRows.find((row) => String(row.id) === String(button.dataset.id));
+      if (item) selectPickup(item);
+    });
+  };
+
   const loadDriverDeliveries = async () => {
     const list = document.querySelector("#driver-list");
     const { data, error } = await supabase.from("painting_deliveries").select("*").order("created_at", { ascending: false }).limit(80);
-    list.innerHTML = error ? `<div class="form-message error">Non riesco a caricare la situazione. Avvisa l'ufficio.</div>` : driverSituationList(data || []);
+    if (error) {
+      list.innerHTML = `<div class="form-message error">Non riesco a caricare i ritiri. Avvisa l'ufficio.</div>`;
+      return;
+    }
+    pickupRows = latestPaintingDeliveries(data || []).filter((item) => item.material_status === "consegnato");
+    renderPickups();
   };
 
   document.querySelector("#driver-refresh").onclick = loadDriverDeliveries;
