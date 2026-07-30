@@ -418,6 +418,7 @@ function paintingView() {
       </span>
       <div class="paint-actions">
         ${related ? `<button class="secondary fit open-paint-client" type="button" data-client="${related.client_id}">Apri scheda cliente</button>` : ""}
+        <button class="secondary fit correct-paint" type="button" data-id="${item.id}">Correggi</button>
         <select class="paint-status-select" data-id="${item.id}">
           ${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${(item.material_status || "consegnato") === key ? "selected" : ""}>${label}</option>`).join("")}
         </select>
@@ -469,6 +470,7 @@ function bindView() {
     const correction = document.querySelector(`.paint-correct-select[data-id="${button.dataset.id}"]`)?.value || "";
     markPaintingChecked(button.dataset.id, correction);
   });
+  document.querySelectorAll(".correct-paint").forEach((button) => button.onclick = () => correctionPaintingDeliveryModal(button.dataset.id));
   document.querySelectorAll(".delete-paint").forEach((button) => button.onclick = () => deletePaintingDelivery(button.dataset.id));
   document.querySelectorAll(".paint-status-select").forEach((select) => select.onchange = () => updatePaintingStatus(select.dataset.id, select.value));
   document.querySelector("#archive-search")?.addEventListener("input", (event) => { const query = event.target.value.trim().toLowerCase(); document.querySelectorAll(".archive-row").forEach((row) => { row.hidden = !row.dataset.search.includes(query); }); });
@@ -597,6 +599,68 @@ function manualPaintingDeliveryModal() {
       adminPage();
     } catch (error) {
       notice(error.message || "Inserimento non riuscito.", "error");
+    }
+  };
+}
+function correctionPaintingDeliveryModal(id) {
+  const delivery = state.paintDeliveries.find((item) => String(item.id) === String(id));
+  if (!delivery) return notice("Movimento non trovato.", "error");
+  const currentJob = findPaintingJob(delivery);
+  const sameClientJobs = currentJob ? activeJobs().filter((job) => job.client_id === currentJob.client_id) : activeJobs();
+  const jobs = sameClientJobs.length ? sameClientJobs : activeJobs();
+  const options = jobs.map((job) => {
+    const client = state.clients.find((item) => item.id === job.client_id);
+    const selected = currentJob?.id === job.id ? "selected" : "";
+    return `<option value="${job.id}" ${selected}>${esc(client?.name || "Cliente")} · ${esc(job.code || job.title)}</option>`;
+  }).join("");
+  modal(`<span class="eyebrow red">CORREZIONE MOVIMENTO</span><h2>${esc(delivery.client_name || "Movimento autista")}</h2>
+    <p class="modal-help">Usa questa sezione quando l'autista ha caricato foto o stato nella fase sbagliata. Dopo il salvataggio viene corretta anche la scheda vista dal cliente.</p>
+    <form id="correct-paint-form">
+      <label>Commessa corretta<select name="job_id" required>${options}</select></label>
+      <div class="form-grid">
+        <label>Verniciatore corretto<select name="painter" required>${painters.map((value) => `<option value="${value}" ${normalizePainter(delivery.painter) === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
+        <label>Stato reale del materiale<select name="material_status">${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${(delivery.material_status || "consegnato") === key ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+      </div>
+      <label>Note correzione<textarea name="notes" rows="3">${esc(delivery.notes || "")}</textarea></label>
+      <button class="primary" type="submit">Salva correzione</button>
+    </form>`);
+  const form = document.querySelector("#correct-paint-form");
+  form.job_id.onchange = () => {
+    const job = state.jobs.find((item) => item.id === form.job_id.value);
+    if (job?.painter) form.painter.value = job.painter;
+  };
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const job = state.jobs.find((item) => item.id === form.job_id.value);
+    if (!job) return notice("Seleziona la commessa corretta.", "error");
+    const client = state.clients.find((item) => item.id === job.client_id);
+    const now = new Date().toISOString();
+    const materialStatus = form.material_status.value;
+    const patch = {
+      job_code: job.code || "",
+      client_name: client?.name || job.title,
+      painter: form.painter.value,
+      material_status: materialStatus,
+      notes: String(form.notes.value || "").trim(),
+      checked: true,
+      checked_at: now,
+      updated_at: now
+    };
+    const { data, error } = await supabase.from("painting_deliveries").update(patch).eq("id", id).select().single();
+    if (error) return notice(error.message, "error");
+    try {
+      if (currentJob && currentJob.id !== job.id && currentJob.current_step === "pronto_ritiro" && materialStatus !== "rientrato") {
+        const reset = { ...currentJob, current_step: "verniciatura", has_painting: true, updated_at: now };
+        normalizeJobData(reset);
+        await supabase.from("jobs").update({ current_step: reset.current_step, progress: reset.progress, phase: reset.phase, updated_at: now }).eq("id", currentJob.id);
+      }
+      const result = await syncPaintingDeliveryToJob(data || { ...delivery, ...patch });
+      await logAction("painting_delivery", id, "correct", `Corretto movimento autista su ${job.code || job.title}: ${paintStatuses[materialStatus] || materialStatus}`);
+      closeModal();
+      notice(result.synced ? "Movimento corretto e scheda cliente aggiornata." : result.message, result.synced ? "ok" : "error");
+      adminPage();
+    } catch (error) {
+      notice(error.message || "Correzione salvata, ma scheda cliente non aggiornata.", "error");
     }
   };
 }
