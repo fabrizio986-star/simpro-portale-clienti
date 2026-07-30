@@ -610,15 +610,16 @@ function manualPaintingDeliveryModal() {
     const job = state.jobs.find((item) => item.id === form.job_id.value);
     if (!job) return notice("Seleziona una commessa.", "error");
     const client = state.clients.find((item) => item.id === job.client_id);
+    const materialStatus = form.material_status.value;
     const payload = {
       job_code: job.code || "",
       client_name: client?.name || job.title,
       painter: form.painter.value,
-      material_status: form.material_status.value,
+      material_status: dbMaterialStatus(materialStatus),
       driver_name: "Inserimento manuale amministratore",
       notes: String(form.notes.value || "").trim(),
-      checked: true,
-      checked_at: new Date().toISOString()
+      checked: materialStatus !== "controllo",
+      checked_at: materialStatus === "controllo" ? null : new Date().toISOString()
     };
     try {
       const file = form.photo.files?.[0];
@@ -626,7 +627,7 @@ function manualPaintingDeliveryModal() {
       const { data, error } = await supabase.from("painting_deliveries").insert(payload).select().single();
       if (error) throw error;
       state.paintDeliveries.unshift(data);
-      await syncPaintingDeliveryToJob(data);
+      await syncPaintingDeliveryToJob({ ...data, material_status: materialStatus });
       await logAction("painting_delivery", data.id, "manual_create", `Inserito manualmente ${job.code || job.title} presso ${payload.painter}`);
       closeModal();
       notice("Materiale aggiunto in Verniciatura.");
@@ -653,7 +654,7 @@ function correctionPaintingDeliveryModal(id) {
       <label>Commessa corretta<select name="job_id" required>${options}</select></label>
       <div class="form-grid">
         <label>Verniciatore corretto<select name="painter" required>${painters.map((value) => `<option value="${value}" ${normalizePainter(delivery.painter) === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
-        <label>Stato reale del materiale<select name="material_status">${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${(delivery.material_status || "consegnato") === key ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+        <label>Stato reale del materiale<select name="material_status">${Object.entries(paintStatuses).map(([key, label]) => `<option value="${key}" ${paintingStatusValue(delivery) === key ? "selected" : ""}>${label}</option>`).join("")}</select></label>
       </div>
       <label>Note correzione<textarea name="notes" rows="3">${esc(delivery.notes || "")}</textarea></label>
       <button class="primary" type="submit">Salva correzione</button>
@@ -967,6 +968,9 @@ async function driverPage() {
       const photoRequired = data.material_status === "consegnato";
       if (photoRequired && !file) throw new Error("La foto e obbligatoria quando porti/consegni il materiale. Scatta una foto prima di registrare il movimento.");
       if (file) Object.assign(data, await uploadPaintingPhoto(file, data.job_code || data.client_name));
+      const materialStatus = data.material_status;
+      data.material_status = dbMaterialStatus(materialStatus);
+      if (materialStatus === "controllo") data.checked = false;
       const { error } = await supabase.from("painting_deliveries").insert(data);
       if (error) throw new Error(error.message);
       form.reset(); selectedNode.hidden = true; searchInput.value = ""; renderSearchResults(""); message.textContent = "Movimento registrato correttamente."; message.className = "form-message ok"; await loadDriverDeliveries();
