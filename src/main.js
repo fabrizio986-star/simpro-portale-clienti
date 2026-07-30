@@ -30,6 +30,7 @@ const sheetSteps = [
   { key: "lavorazione", label: "Lavorazione", icon: "⚙️", description: "La lamiera è in lavorazione." },
   { key: "piegatura", label: "Piegatura", icon: "📐", description: "La lamiera è in fase di piegatura." },
   { key: "verniciatura", label: "Verniciatura", icon: "🎨", description: "La lamiera è in verniciatura.", optional: "has_painting" },
+  { key: "arrivo_officina", label: "Arrivo in officina", icon: "🏭", description: "Il materiale è rientrato nella nostra officina." },
   { key: "controllo", label: "Controllo qualità", icon: "🔍", description: "Stiamo effettuando il controllo finale." },
   { key: "in_attesa_cliente", label: "In attesa cliente", icon: "⏳", description: "Siamo in attesa di una conferma o di un riscontro dal cliente." },
   { key: "pronto_ritiro", label: "Pronto per il ritiro", icon: "✅", description: "La lamiera è pronta per il ritiro." },
@@ -768,14 +769,14 @@ function findPaintingJob(delivery) {
 }
 function paintingJobPatch(job, delivery) {
   const materialStatus = delivery.material_status || "consegnato";
-  const keepQualityControl = job.current_step === "controllo" && ["rientrato", "ritirato"].includes(materialStatus);
+  const preserveManualStep = ["arrivo_officina", "controllo", "in_attesa_cliente", "pronto_ritiro"].includes(job.current_step) && ["rientrato", "ritirato"].includes(materialStatus);
   const patch = {
     painter: paintingMismatch(delivery).mismatch ? job.painter || null : (delivery.painter || job.painter || null),
     has_painting: true,
     updated_at: new Date().toISOString()
   };
-  if (keepQualityControl) patch.current_step = "controllo";
-  else if (materialStatus === "rientrato") patch.current_step = "pronto_ritiro";
+  if (preserveManualStep) patch.current_step = job.current_step;
+  else if (materialStatus === "rientrato") patch.current_step = "arrivo_officina";
   else if (materialStatus === "controllo") patch.current_step = "controllo";
   else if (["consegnato", "in_viaggio", "da_portare", "ritirato"].includes(materialStatus)) patch.current_step = "verniciatura";
   const nextJob = { ...job, ...patch };
@@ -788,8 +789,8 @@ function paintingJobPatch(job, delivery) {
   const note = `${warning}Verniciatura: ${paintStatuses[materialStatus] || materialStatus} presso ${delivery.painter || "vernicatore non indicato"}${delivery.driver_name ? ` - autista ${delivery.driver_name}` : ""}${delivery.notes ? ` - note: ${delivery.notes}` : ""}`;
   patch.admin_notes = [job.admin_notes, note].filter(Boolean).join("\n");
   if (check.mismatch) patch.note = "Materiale in verniciatura da controllare con SIMPRO.";
-  else if (keepQualityControl || materialStatus === "controllo") patch.note = "Materiale rientrato in officina: controllo qualità in corso.";
-  else if (materialStatus === "rientrato") patch.note = "Materiale rientrato in officina e pronto per il ritiro.";
+  else if (job.current_step === "controllo" || materialStatus === "controllo") patch.note = "Materiale rientrato in officina: controllo qualità in corso.";
+  else if (materialStatus === "rientrato") patch.note = "Materiale rientrato in officina.";
   else if (["consegnato", "in_viaggio", "da_portare", "ritirato"].includes(materialStatus) || !job.note || String(job.note).includes("Verniciatura:")) patch.note = `Materiale in verniciatura presso ${delivery.painter}.`;
   return patch;
 }
