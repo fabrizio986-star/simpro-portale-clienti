@@ -142,7 +142,7 @@ function latestPaintingDeliveries(deliveries = []) {
     const client = String(delivery.client_name || "").trim().toLowerCase();
     const key = job?.id ? `job:${job.id}` : (code ? `code:${code}` : `client:${client || delivery.id}`);
     const previous = latest.get(key);
-    if (!previous || new Date(delivery.created_at || delivery.updated_at || 0) > new Date(previous.created_at || previous.updated_at || 0)) {
+    if (!previous || new Date(delivery.updated_at || delivery.created_at || 0) > new Date(previous.updated_at || previous.created_at || 0)) {
       latest.set(key, delivery);
     }
   }
@@ -688,15 +688,19 @@ function correctionPaintingDeliveryModal(id) {
       checked_at: materialStatus === "controllo" ? null : now,
       updated_at: now
     };
-    const { data, error } = await supabase.from("painting_deliveries").update(patch).eq("id", id).select().single();
+    const relatedIds = relatedPaintingDeliveryIds({ ...delivery, job_code: job.code || "", client_name: client?.name || job.title });
+    const { data, error } = await supabase.from("painting_deliveries").update(patch).in("id", relatedIds).select();
     if (error) return notice(error.message, "error");
+    if (!data?.length) return notice("Correzione non salvata: nessun movimento aggiornato.", "error");
+    state.paintDeliveries = state.paintDeliveries.map((item) => relatedIds.includes(item.id) ? { ...item, ...patch } : item);
     try {
       if (currentJob && currentJob.id !== job.id && currentJob.current_step === "pronto_ritiro" && materialStatus !== "rientrato") {
         const reset = { ...currentJob, current_step: "verniciatura", has_painting: true, updated_at: now };
         normalizeJobData(reset);
         await supabase.from("jobs").update({ current_step: reset.current_step, progress: reset.progress, phase: reset.phase, updated_at: now }).eq("id", currentJob.id);
       }
-      const result = await syncPaintingDeliveryToJob({ ...(data || { ...delivery, ...patch }), material_status: materialStatus });
+      const syncedRow = data.find((item) => String(item.id) === String(id)) || data[0] || { ...delivery, ...patch };
+      const result = await syncPaintingDeliveryToJob({ ...syncedRow, material_status: materialStatus });
       await logAction("painting_delivery", id, "correct", `Corretto movimento autista su ${job.code || job.title}: ${paintStatuses[materialStatus] || materialStatus}`);
       closeModal();
       notice(result.synced ? "Movimento corretto e scheda cliente aggiornata." : result.message, result.synced ? "ok" : "error");
