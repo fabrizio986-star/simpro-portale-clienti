@@ -16,7 +16,7 @@ const root = document.querySelector("#root");
 
 const completeSteps = [
   { key: "materiale_ordinato", label: "Materiale ordinato", icon: "📦", description: "Il materiale necessario è stato ordinato." },
-  { key: "inizio_lavorazione", label: "Inizio lavorazione", icon: "⚙️", description: "La produzione della commessa è iniziata." },
+  { key: "inizio_lavorazione", label: "In lavorazione", icon: "⚙️", description: "La produzione della commessa è iniziata." },
   { key: "fine_lavorazione", label: "Fine lavorazione", icon: "🛠️", description: "La lavorazione principale è stata completata." },
   { key: "zincatura", label: "In zincatura", icon: "🛡️", description: "Il manufatto è in fase di zincatura.", optional: "has_galvanizing" },
   { key: "verniciatura", label: "In verniciatura", icon: "🎨", description: "Il manufatto è in fase di verniciatura.", optional: "has_painting" },
