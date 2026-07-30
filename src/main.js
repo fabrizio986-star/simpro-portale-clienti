@@ -30,6 +30,7 @@ const sheetSteps = [
   { key: "lavorazione", label: "Lavorazione", icon: "⚙️", description: "La lamiera è in lavorazione." },
   { key: "piegatura", label: "Piegatura", icon: "📐", description: "La lamiera è in fase di piegatura." },
   { key: "verniciatura", label: "Verniciatura", icon: "🎨", description: "La lamiera è in verniciatura.", optional: "has_painting" },
+  { key: "controllo", label: "Controllo qualità", icon: "🔍", description: "Stiamo effettuando il controllo finale." },
   { key: "in_attesa_cliente", label: "In attesa cliente", icon: "⏳", description: "Siamo in attesa di una conferma o di un riscontro dal cliente." },
   { key: "pronto_ritiro", label: "Pronto per il ritiro", icon: "✅", description: "La lamiera è pronta per il ritiro." },
 ];
