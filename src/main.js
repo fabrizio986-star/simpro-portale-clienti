@@ -70,6 +70,8 @@ function expectedPaintingJob(delivery) {
   if (code) {
     const exact = state.jobs.find((job) => String(job.code || "").trim().toLowerCase() === code);
     if (exact) return exact;
+    const titleMatch = state.jobs.find((job) => String(job.title || "").trim().toLowerCase() === code);
+    if (titleMatch) return titleMatch;
   }
   if (client) {
     const relatedClient = state.clients.find((item) => {
@@ -78,6 +80,15 @@ function expectedPaintingJob(delivery) {
     });
     if (relatedClient) {
       const relatedJobs = state.jobs.filter((job) => String(job.client_id) === String(relatedClient.id));
+      if (code) {
+        const relatedExact = relatedJobs.find((job) => [job.code, job.title].some((value) => String(value || "").trim().toLowerCase() === code));
+        if (relatedExact) return relatedExact;
+        const relatedPartial = relatedJobs.find((job) => [job.code, job.title].some((value) => {
+          const text = String(value || "").trim().toLowerCase();
+          return text && (text.includes(code) || code.includes(text));
+        }));
+        if (relatedPartial) return relatedPartial;
+      }
       if (relatedJobs.length === 1) return relatedJobs[0];
       const paintingJob = relatedJobs.find((job) => job.current_step === "verniciatura" || job.has_painting);
       if (paintingJob) return paintingJob;
@@ -740,7 +751,10 @@ function paintingJobPatch(job, delivery) {
   const warning = check.mismatch ? `ATTENZIONE verniciatore diverso: previsto ${check.expected}, portato a ${check.actual}. ` : "";
   const note = `${warning}Verniciatura: ${paintStatuses[materialStatus] || materialStatus} presso ${delivery.painter || "vernicatore non indicato"}${delivery.driver_name ? ` - autista ${delivery.driver_name}` : ""}${delivery.notes ? ` - note: ${delivery.notes}` : ""}`;
   patch.admin_notes = [job.admin_notes, note].filter(Boolean).join("\n");
-  if (!job.note || String(job.note).includes("Verniciatura:") || materialStatus === "rientrato") patch.note = check.mismatch ? "Materiale in verniciatura da controllare con SIMPRO." : (materialStatus === "rientrato" ? "Materiale rientrato in officina e pronto per il ritiro." : `Materiale in verniciatura presso ${delivery.painter}.`);
+  if (check.mismatch) patch.note = "Materiale in verniciatura da controllare con SIMPRO.";
+  else if (materialStatus === "rientrato") patch.note = "Materiale rientrato in officina e pronto per il ritiro.";
+  else if (materialStatus === "controllo") patch.note = "Materiale rientrato in officina: controllo qualità in corso.";
+  else if (["consegnato", "in_viaggio", "da_portare", "ritirato"].includes(materialStatus) || !job.note || String(job.note).includes("Verniciatura:")) patch.note = `Materiale in verniciatura presso ${delivery.painter}.`;
   return patch;
 }
 async function syncPaintingDeliveryToJob(delivery) {
