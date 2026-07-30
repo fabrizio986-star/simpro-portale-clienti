@@ -7,7 +7,7 @@ const corsHeaders = {
 
 const stepLabels: Record<string, string> = {
   materiale_ordinato: "Materiale ordinato",
-  inizio_lavorazione: "Inizio lavorazione",
+  inizio_lavorazione: "In lavorazione",
   fine_lavorazione: "Fine lavorazione",
   zincatura: "In zincatura",
   verniciatura: "In verniciatura",
