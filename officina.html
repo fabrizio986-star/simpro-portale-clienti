@@ -76,7 +76,9 @@
           document.querySelectorAll('.office-painters > div').forEach(row => {
             const painter = row.querySelector('span')?.textContent?.trim().toUpperCase();
             const counter = row.querySelector('strong');
-            if (painter && counter) counter.textContent = String(painterPickupCards(painter).length);
+            if (!painter || !counter) return;
+            const nextValue = String(painterPickupCards(painter).length);
+            if (counter.textContent !== nextValue) counter.textContent = nextValue;
           });
         }
 
