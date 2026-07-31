@@ -19,9 +19,9 @@
     <title>SIMPRO · Capofficina</title>
     <style>
       #office-diagnostic { display:none; margin:20px; padding:18px; border-radius:14px; background:#fff3f3; color:#8b0000; font-family:Arial,sans-serif; white-space:pre-wrap; overflow-wrap:anywhere; }
-      .office-kpis > div { cursor:pointer; user-select:none; }
-      .office-kpis > div::after { content:"Apri ›"; display:block; margin-top:6px; font-size:12px; font-weight:800; opacity:.65; }
-      .office-kpis > div:active { transform:scale(.98); }
+      .office-kpis > div, .office-painters > div { cursor:pointer; user-select:none; }
+      .office-kpis > div::after, .office-painters > div::after { content:"Apri ›"; display:block; margin-top:6px; font-size:12px; font-weight:800; opacity:.65; }
+      .office-kpis > div:active, .office-painters > div:active { transform:scale(.98); }
       .office-list-overlay { position:fixed; inset:0; z-index:99999; overflow:auto; background:#f4f6f8; padding:18px; }
       .office-list-inner { max-width:1100px; margin:0 auto; }
       .office-list-head { position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:14px; padding:10px 0 18px; background:#f4f6f8; }
@@ -51,21 +51,18 @@
         }
       }, 12000);
 
-      const officeCategories = [
-        { title: 'Da portare', selector: '.office-section.to-take' },
-        { title: 'Dal verniciatore', selector: '.office-section.delivered' },
-        { title: 'Da ritirare', selector: '.office-section.to-collect' }
-      ];
+      const allCards = (selector) => [...document.querySelectorAll(selector)];
+      const deliveredToPainterCards = () => allCards('.office-section.delivered .office-card .status-consegnato').map((status) => status.closest('.office-card'));
+      const returningFromPainterCards = () => allCards('.office-section.to-collect .office-card');
+      const toPainterCards = () => allCards('.office-section.to-take .office-card');
+      const cardsForCategory = (index) => index === 0 ? toPainterCards() : index === 1 ? returningFromPainterCards() : deliveredToPainterCards();
+      const categoryTitles = ['Da portare', 'Dal verniciatore', 'Da ritirare'];
 
-      function openOfficeCategory(index) {
-        const config = officeCategories[index];
-        if (!config) return;
-        const source = document.querySelector(config.selector);
-        const cards = source ? [...source.querySelectorAll('.office-card')] : [];
+      function openOfficeList(title, cards) {
         document.querySelector('.office-list-overlay')?.remove();
         const overlay = document.createElement('div');
         overlay.className = 'office-list-overlay';
-        overlay.innerHTML = `<div class="office-list-inner"><div class="office-list-head"><button class="office-list-back" type="button">← Indietro</button><h1>${config.title}</h1></div><div class="office-list-grid"></div></div>`;
+        overlay.innerHTML = `<div class="office-list-inner"><div class="office-list-head"><button class="office-list-back" type="button">← Indietro</button><h1>${title}</h1></div><div class="office-list-grid"></div></div>`;
         const grid = overlay.querySelector('.office-list-grid');
         if (cards.length) cards.forEach((card) => grid.appendChild(card.cloneNode(true)));
         else grid.innerHTML = '<div class="office-list-empty">Nessun cliente presente.</div>';
@@ -77,12 +74,45 @@
         };
       }
 
+      function syncAdminMirror() {
+        const kpis = [...document.querySelectorAll('.office-kpis > div')];
+        kpis.forEach((kpi, index) => {
+          const counter = kpi.querySelector('strong');
+          const next = String(cardsForCategory(index).length);
+          if (counter && counter.textContent !== next) counter.textContent = next;
+        });
+
+        const pickupCards = deliveredToPainterCards();
+        document.querySelectorAll('.office-painters > div').forEach((row) => {
+          const painter = row.querySelector('span')?.textContent?.trim().toUpperCase();
+          const count = pickupCards.filter((card) => String(card.textContent || '').toUpperCase().includes(painter)).length;
+          const counter = row.querySelector('strong');
+          if (counter && counter.textContent !== String(count)) counter.textContent = String(count);
+          row.setAttribute('role', 'button');
+          row.setAttribute('tabindex', '0');
+        });
+      }
+
       document.addEventListener('click', (event) => {
-        const card = event.target.closest('.office-kpis > div');
-        if (!card) return;
-        const cards = [...document.querySelectorAll('.office-kpis > div')];
-        openOfficeCategory(cards.indexOf(card));
+        const kpi = event.target.closest('.office-kpis > div');
+        if (kpi) {
+          const kpis = [...document.querySelectorAll('.office-kpis > div')];
+          const index = kpis.indexOf(kpi);
+          openOfficeList(categoryTitles[index], cardsForCategory(index));
+          return;
+        }
+
+        const painterRow = event.target.closest('.office-painters > div');
+        if (painterRow) {
+          const painter = painterRow.querySelector('span')?.textContent?.trim().toUpperCase();
+          const cards = deliveredToPainterCards().filter((card) => String(card.textContent || '').toUpperCase().includes(painter));
+          openOfficeList(`Da ritirare · ${painter}`, cards);
+        }
       });
+
+      const mirrorObserver = new MutationObserver(() => requestAnimationFrame(syncAdminMirror));
+      mirrorObserver.observe(document.getElementById('root'), { childList:true, subtree:true });
+      setInterval(syncAdminMirror, 1000);
     </script>
     <script type="module" src="/src/officina.js"></script>
   </body>
