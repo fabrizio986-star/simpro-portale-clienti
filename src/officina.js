@@ -65,7 +65,13 @@ function officeCard(item, jobs, clients) {
 
 function bindClientButtons(scope = document) {
   scope.querySelectorAll(".open-office-client").forEach((button) => {
-    button.onclick = () => clientSheet(button.dataset.client);
+    button.onclick = (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      document.querySelector(".office-list-overlay")?.remove();
+      document.body.classList.remove("office-list-open");
+      clientSheet(button.dataset.client);
+    };
   });
 }
 
@@ -73,13 +79,14 @@ document.addEventListener("click", (event) => {
   const button = event.target.closest?.(".open-office-client");
   if (!button) return;
   event.preventDefault();
-  event.stopPropagation();
+  event.stopImmediatePropagation();
   document.querySelector(".office-list-overlay")?.remove();
   document.body.classList.remove("office-list-open");
   clientSheet(button.dataset.client);
-});
+}, true);
 
 function clientSheet(clientId) {
+  document.querySelector(".office-modal-bg")?.remove();
   const client = officeData.clients.find((entry) => String(entry.id) === String(clientId));
   const jobs = officeData.jobs.filter((job) => String(job.client_id) === String(clientId));
   if (!client) return;
