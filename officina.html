@@ -18,17 +18,20 @@
     <link rel="apple-touch-icon" href="https://www.simprolamiere.it/wp-content/uploads/2024/07/logo-simpro-128x128.png" />
     <title>SIMPRO · Capofficina</title>
     <style>
-      .office-kpis > div { cursor: pointer; position: relative; transition: transform .15s ease, box-shadow .15s ease; }
-      .office-kpis > div::after { content: "Apri ›"; display: block; margin-top: 8px; font-size: 12px; font-weight: 800; opacity: .7; }
-      .office-kpis > div:active { transform: scale(.98); }
-      .office-task-screen { position: fixed; inset: 0; z-index: 9999; overflow-y: auto; background: #f4f6f8; padding: env(safe-area-inset-top) 18px 32px; }
-      .office-task-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 14px; padding: 14px 0 18px; background: #f4f6f8; }
+      .office-kpis > div, .office-painters > div { cursor: pointer; position: relative; transition: transform .15s ease, box-shadow .15s ease; user-select: none; }
+      .office-kpis > div::after, .office-painters > div::after { content: "Apri ›"; margin-left: auto; font-size: 12px; font-weight: 800; opacity: .7; }
+      .office-kpis > div:active, .office-painters > div:active { transform: scale(.98); }
+      .office-task-screen { position: fixed; inset: 0; z-index: 9999; overflow-y: auto; background: #f4f6f8; padding: max(env(safe-area-inset-top), 12px) 18px 32px; }
+      .office-task-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 14px; padding: 10px 0 18px; background: #f4f6f8; }
       .office-task-back { border: 0; border-radius: 14px; padding: 13px 17px; background: #171d23; color: white; font-size: 16px; font-weight: 800; cursor: pointer; }
       .office-task-bar h1 { margin: 0; font-size: clamp(23px, 5vw, 34px); }
-      .office-task-screen .office-section { max-width: 1100px; margin: 0 auto; }
-      .office-task-screen .office-section-title { display: none; }
+      .office-task-content { max-width: 1100px; margin: 0 auto; }
+      .office-task-content .office-grid { display: grid; gap: 14px; }
+      .office-task-empty { background: white; border-radius: 18px; padding: 30px; text-align: center; font-weight: 700; }
       body.office-task-open { overflow: hidden; }
-      @media (hover:hover) { .office-kpis > div:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(23,29,35,.12); } }
+      @media (hover:hover) {
+        .office-kpis > div:hover, .office-painters > div:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(23,29,35,.12); }
+      }
     </style>
   </head>
   <body>
@@ -36,57 +39,72 @@
     <script type="module" src="/src/officina.js"></script>
     <script>
       (() => {
-        const categories = [
+        const categoryConfig = [
           { selector: '.office-section.to-take', title: 'Da portare' },
           { selector: '.office-section.delivered', title: 'Dal verniciatore' },
           { selector: '.office-section.to-collect', title: 'Da ritirare' }
         ];
 
-        function openTaskScreen(index) {
-          const config = categories[index];
-          const section = document.querySelector(config.selector);
-          if (!section || document.querySelector('.office-task-screen')) return;
-
-          const parent = section.parentNode;
-          const next = section.nextSibling;
+        function openScreen(title, cards) {
+          document.querySelector('.office-task-screen')?.remove();
           const screen = document.createElement('div');
           screen.className = 'office-task-screen';
-          screen.innerHTML = `<div class="office-task-bar"><button class="office-task-back" type="button">← Indietro</button><h1>${config.title}</h1></div>`;
-          screen.appendChild(section);
+          const content = document.createElement('div');
+          content.className = 'office-task-content';
+          content.innerHTML = `<div class="office-task-bar"><button class="office-task-back" type="button">← Indietro</button><h1>${title}</h1></div>`;
+          const grid = document.createElement('div');
+          grid.className = 'office-grid';
+          if (cards.length) cards.forEach(card => grid.appendChild(card.cloneNode(true)));
+          else grid.innerHTML = '<div class="office-task-empty">Nessuna lavorazione presente.</div>';
+          content.appendChild(grid);
+          screen.appendChild(content);
           document.body.appendChild(screen);
           document.body.classList.add('office-task-open');
-
-          const close = () => {
-            if (next && next.parentNode === parent) parent.insertBefore(section, next);
-            else parent.appendChild(section);
+          screen.querySelector('.office-task-back').addEventListener('click', () => {
             screen.remove();
             document.body.classList.remove('office-task-open');
-          };
-
-          screen.querySelector('.office-task-back').addEventListener('click', close);
-          history.pushState({ officeTask: true }, '');
-          const onPop = () => { if (document.body.contains(screen)) close(); window.removeEventListener('popstate', onPop); };
-          window.addEventListener('popstate', onPop);
-        }
-
-        function bindKpis() {
-          document.querySelectorAll('.office-kpis > div').forEach((card, index) => {
-            if (card.dataset.taskBound || index > 2) return;
-            card.dataset.taskBound = '1';
-            card.setAttribute('role', 'button');
-            card.setAttribute('tabindex', '0');
-            card.addEventListener('click', () => openTaskScreen(index));
-            card.addEventListener('keydown', (event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                openTaskScreen(index);
-              }
-            });
           });
         }
 
-        new MutationObserver(bindKpis).observe(document.getElementById('root'), { childList: true, subtree: true });
-        bindKpis();
+        document.addEventListener('click', (event) => {
+          const kpi = event.target.closest('.office-kpis > div');
+          if (kpi) {
+            const cards = [...document.querySelectorAll('.office-kpis > div')];
+            const index = cards.indexOf(kpi);
+            const config = categoryConfig[index];
+            if (!config) return;
+            const sectionCards = [...document.querySelectorAll(`${config.selector} .office-card`)];
+            openScreen(config.title, sectionCards);
+            return;
+          }
+
+          const painterRow = event.target.closest('.office-painters > div');
+          if (painterRow) {
+            const painter = painterRow.querySelector('span')?.textContent?.trim().toUpperCase();
+            if (!painter) return;
+            const allCards = [...document.querySelectorAll('.office-section .office-card')];
+            const matching = allCards.filter(card => String(card.dataset.search || card.textContent || '').toUpperCase().includes(painter));
+            openScreen(painter, matching);
+          }
+        });
+
+        function prepareClickableItems() {
+          document.querySelectorAll('.office-kpis > div, .office-painters > div').forEach(item => {
+            item.setAttribute('role', 'button');
+            item.setAttribute('tabindex', '0');
+          });
+        }
+
+        document.addEventListener('keydown', (event) => {
+          if (!['Enter', ' '].includes(event.key)) return;
+          const item = event.target.closest?.('.office-kpis > div, .office-painters > div');
+          if (!item) return;
+          event.preventDefault();
+          item.click();
+        });
+
+        new MutationObserver(prepareClickableItems).observe(document.getElementById('root'), { childList: true, subtree: true });
+        prepareClickableItems();
       })();
     </script>
   </body>
