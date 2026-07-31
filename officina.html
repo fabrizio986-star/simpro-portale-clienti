@@ -66,6 +66,21 @@
           });
         }
 
+        function realPainterCards(painter) {
+          const selector = '.office-section.delivered .office-card, .office-section.to-collect .office-card';
+          return [...document.querySelectorAll(selector)].filter(card =>
+            String(card.dataset.search || card.textContent || '').toUpperCase().includes(painter)
+          );
+        }
+
+        function syncPainterSummary() {
+          document.querySelectorAll('.office-painters > div').forEach(row => {
+            const painter = row.querySelector('span')?.textContent?.trim().toUpperCase();
+            const counter = row.querySelector('strong');
+            if (painter && counter) counter.textContent = String(realPainterCards(painter).length);
+          });
+        }
+
         document.addEventListener('click', (event) => {
           const kpi = event.target.closest('.office-kpis > div');
           if (kpi) {
@@ -82,9 +97,7 @@
           if (painterRow) {
             const painter = painterRow.querySelector('span')?.textContent?.trim().toUpperCase();
             if (!painter) return;
-            const allCards = [...document.querySelectorAll('.office-section .office-card')];
-            const matching = allCards.filter(card => String(card.dataset.search || card.textContent || '').toUpperCase().includes(painter));
-            openScreen(painter, matching);
+            openScreen(painter, realPainterCards(painter));
           }
         });
 
@@ -93,6 +106,7 @@
             item.setAttribute('role', 'button');
             item.setAttribute('tabindex', '0');
           });
+          syncPainterSummary();
         }
 
         document.addEventListener('keydown', (event) => {
