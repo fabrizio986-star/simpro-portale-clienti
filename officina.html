@@ -17,9 +17,29 @@
     <link rel="icon" href="https://www.simprolamiere.it/wp-content/uploads/2024/07/logo-simpro-128x128.png" />
     <link rel="apple-touch-icon" href="https://www.simprolamiere.it/wp-content/uploads/2024/07/logo-simpro-128x128.png" />
     <title>SIMPRO · Capofficina</title>
+    <style>
+      #office-diagnostic { display:none; margin:20px; padding:18px; border-radius:14px; background:#fff3f3; color:#8b0000; font-family:Arial,sans-serif; white-space:pre-wrap; overflow-wrap:anywhere; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <pre id="office-diagnostic"></pre>
+    <script>
+      const showOfficeError = (message) => {
+        const box = document.getElementById('office-diagnostic');
+        if (!box) return;
+        box.style.display = 'block';
+        box.textContent = 'ERRORE CARICAMENTO\n\n' + String(message || 'Errore sconosciuto');
+      };
+      window.addEventListener('error', (event) => showOfficeError(event.error?.stack || event.message));
+      window.addEventListener('unhandledrejection', (event) => showOfficeError(event.reason?.stack || event.reason?.message || event.reason));
+      setTimeout(() => {
+        const root = document.getElementById('root');
+        if (root && root.textContent.includes('Caricamento situazione verniciature')) {
+          showOfficeError('La richiesta dati non ha risposto entro 12 secondi. Possibile problema nella funzione Supabase get_officina_board o nella connessione al database.');
+        }
+      }, 12000);
+    </script>
     <script type="module" src="/src/officina.js"></script>
   </body>
 </html>
