@@ -10,9 +10,15 @@ const root = document.querySelector("#root");
 const PAINTERS = ["DAMAS", "SOSAM", "METALLIKA", "GALLO"];
 const esc = (value = "") => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
 const formatDate = (value) => value ? new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" }).format(new Date(value)) : "—";
+const formatTime = (value = new Date()) => new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(value);
 const normalize = (value = "") => String(value || "").trim().toUpperCase();
 const searchText = (value = "") => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 let officeData = { clients: [], jobs: [], deliveries: [] };
+let realtimeChannel = null;
+let refreshTimer = null;
+let fallbackTimer = null;
+let isRefreshing = false;
+let pendingRefresh = false;
 
 function logo() {
   return '<img class="office-logo" src="https://www.simprolamiere.it/wp-content/uploads/2024/07/logo-simpro-128x128.png" alt="SIMPRO Lamiere">';
@@ -82,13 +88,40 @@ function applyOfficeSearch(rawQuery) {
   });
 }
 
-async function officePage() {
+function scheduleRefresh(delay = 350) {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => officePage({ preserveView: true, silent: true }), delay);
+}
+
+function subscribeOfficeRealtime() {
+  if (realtimeChannel) return;
+  realtimeChannel = supabase.channel("simpro-officina-live")
+    .on("postgres_changes", { event: "*", schema: "public", table: "jobs" }, () => scheduleRefresh())
+    .on("postgres_changes", { event: "*", schema: "public", table: "painting_deliveries" }, () => scheduleRefresh())
+    .on("postgres_changes", { event: "*", schema: "public", table: "clients" }, () => scheduleRefresh())
+    .subscribe((status) => {
+      const indicator = document.querySelector("#office-live-status");
+      if (!indicator) return;
+      indicator.textContent = status === "SUBSCRIBED" ? "● Aggiornamento automatico attivo" : "○ Collegamento in corso";
+      indicator.classList.toggle("connected", status === "SUBSCRIBED");
+    });
+}
+
+async function officePage({ preserveView = false, silent = false } = {}) {
+  if (isRefreshing) {
+    pendingRefresh = true;
+    return;
+  }
+  isRefreshing = true;
   const token = new URLSearchParams(window.location.search).get("accesso");
-  if (!token) return errorPage("Apri il collegamento riservato fornito da SIMPRO.");
-  root.innerHTML = '<div class="office-loading">Caricamento situazione verniciature…</div>';
+  if (!token) { isRefreshing = false; return errorPage("Apri il collegamento riservato fornito da SIMPRO."); }
+
+  const previousSearch = preserveView ? (document.querySelector("#office-search")?.value || "") : "";
+  const previousScroll = preserveView ? window.scrollY : 0;
+  if (!silent) root.innerHTML = '<div class="office-loading">Caricamento situazione verniciature…</div>';
 
   const { data, error } = await supabase.rpc("get_officina_board", { p_token: token });
-  if (error || !data?.ok) return errorPage("Il collegamento non è valido oppure è stato disattivato.");
+  if (error || !data?.ok) { isRefreshing = false; return errorPage("Il collegamento non è valido oppure è stato disattivato."); }
 
   const clients = data.clients || [];
   const jobs = data.jobs || [];
@@ -103,11 +136,22 @@ async function officePage() {
   const toCollect = rows.filter((item) => item.material_status === "ritirato");
 
   const section = (title, items, className) => `<section class="office-section ${className}"><div class="office-section-title"><h2>${title}</h2><span>${items.length}</span></div><div class="office-grid">${items.length ? items.map((item) => officeCard(item, jobs, clients)).join("") : '<div class="office-empty">Nessuna lavorazione.</div>'}</div></section>`;
-  root.innerHTML = `<header class="office-header">${logo()}<div><small>TABLET OFFICINA</small><h1>Verniciature</h1></div><button id="office-refresh">Aggiorna</button></header><main class="office-wrap"><div class="office-kpis"><div><small>Da portare</small><strong>${toTake.length}</strong></div><div><small>Dal verniciatore</small><strong>${delivered.length}</strong></div><div><small>Da ritirare</small><strong>${toCollect.length}</strong></div></div><label class="office-search">Cerca cliente, commessa o nota<input id="office-search" type="search" inputmode="search" autocomplete="off" placeholder="Scrivi nome, numero commessa o parola nelle note"></label>${section("Da portare in verniciatura", toTake, "to-take")}${section("Consegnate ai verniciatori", delivered, "delivered")}${section("Da ritirare / rientrare", toCollect, "to-collect")}<section class="office-painters"><h2>Riepilogo per verniciatore</h2>${PAINTERS.map((painter) => `<div><span>${painter}</span><strong>${rows.filter((item) => normalize(item.painter) === painter).length}</strong></div>`).join("")}</section></main>`;
-  document.querySelector("#office-refresh").onclick = officePage;
+  root.innerHTML = `<header class="office-header">${logo()}<div><small>TABLET CAPOFFICINA</small><h1>Verniciature</h1><span id="office-live-status" class="office-live-status">○ Collegamento in corso</span></div><button id="office-refresh">Aggiorna ora</button></header><main class="office-wrap"><div class="office-kpis"><div><small>Da portare</small><strong>${toTake.length}</strong></div><div><small>Dal verniciatore</small><strong>${delivered.length}</strong></div><div><small>Da ritirare</small><strong>${toCollect.length}</strong></div></div><div class="office-last-update">Ultimo aggiornamento: <strong>${formatTime()}</strong></div><label class="office-search">Cerca cliente, commessa o nota<input id="office-search" type="search" inputmode="search" autocomplete="off" placeholder="Scrivi nome, numero commessa o parola nelle note" value="${esc(previousSearch)}"></label>${section("Da portare in verniciatura", toTake, "to-take")}${section("Consegnate ai verniciatori", delivered, "delivered")}${section("Da ritirare / rientrare", toCollect, "to-collect")}<section class="office-painters"><h2>Riepilogo per verniciatore</h2>${PAINTERS.map((painter) => `<div><span>${painter}</span><strong>${rows.filter((item) => normalize(item.painter) === painter).length}</strong></div>`).join("")}</section></main>`;
+  document.querySelector("#office-refresh").onclick = () => officePage({ preserveView: true });
   const searchInput = document.querySelector("#office-search");
   ["input", "keyup", "search", "change"].forEach((eventName) => searchInput.addEventListener(eventName, () => applyOfficeSearch(searchInput.value)));
   document.querySelectorAll(".open-office-client").forEach((button) => button.onclick = () => clientSheet(button.dataset.client));
+  if (previousSearch) applyOfficeSearch(previousSearch);
+  if (preserveView) requestAnimationFrame(() => window.scrollTo({ top: previousScroll, behavior: "auto" }));
+
+  subscribeOfficeRealtime();
+  clearInterval(fallbackTimer);
+  fallbackTimer = setInterval(() => officePage({ preserveView: true, silent: true }), 30000);
+  isRefreshing = false;
+  if (pendingRefresh) {
+    pendingRefresh = false;
+    scheduleRefresh(100);
+  }
 }
 
 officePage();
