@@ -19,6 +19,17 @@
     <title>SIMPRO · Capofficina</title>
     <style>
       #office-diagnostic { display:none; margin:20px; padding:18px; border-radius:14px; background:#fff3f3; color:#8b0000; font-family:Arial,sans-serif; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .office-kpis > div { cursor:pointer; user-select:none; }
+      .office-kpis > div::after { content:"Apri ›"; display:block; margin-top:6px; font-size:12px; font-weight:800; opacity:.65; }
+      .office-kpis > div:active { transform:scale(.98); }
+      .office-list-overlay { position:fixed; inset:0; z-index:99999; overflow:auto; background:#f4f6f8; padding:18px; }
+      .office-list-inner { max-width:1100px; margin:0 auto; }
+      .office-list-head { position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:14px; padding:10px 0 18px; background:#f4f6f8; }
+      .office-list-head h1 { margin:0; font-size:clamp(24px,5vw,34px); }
+      .office-list-back { border:0; border-radius:14px; padding:13px 17px; background:#171d23; color:#fff; font-size:16px; font-weight:800; }
+      .office-list-grid { display:grid; gap:14px; }
+      .office-list-empty { padding:28px; border-radius:18px; background:#fff; text-align:center; font-weight:700; }
+      body.office-list-open { overflow:hidden; }
     </style>
   </head>
   <body>
@@ -39,6 +50,39 @@
           showOfficeError('La richiesta dati non ha risposto entro 12 secondi. Possibile problema nella funzione Supabase get_officina_board o nella connessione al database.');
         }
       }, 12000);
+
+      const officeCategories = [
+        { title: 'Da portare', selector: '.office-section.to-take' },
+        { title: 'Dal verniciatore', selector: '.office-section.delivered' },
+        { title: 'Da ritirare', selector: '.office-section.to-collect' }
+      ];
+
+      function openOfficeCategory(index) {
+        const config = officeCategories[index];
+        if (!config) return;
+        const source = document.querySelector(config.selector);
+        const cards = source ? [...source.querySelectorAll('.office-card')] : [];
+        document.querySelector('.office-list-overlay')?.remove();
+        const overlay = document.createElement('div');
+        overlay.className = 'office-list-overlay';
+        overlay.innerHTML = `<div class="office-list-inner"><div class="office-list-head"><button class="office-list-back" type="button">← Indietro</button><h1>${config.title}</h1></div><div class="office-list-grid"></div></div>`;
+        const grid = overlay.querySelector('.office-list-grid');
+        if (cards.length) cards.forEach((card) => grid.appendChild(card.cloneNode(true)));
+        else grid.innerHTML = '<div class="office-list-empty">Nessun cliente presente.</div>';
+        document.body.appendChild(overlay);
+        document.body.classList.add('office-list-open');
+        overlay.querySelector('.office-list-back').onclick = () => {
+          overlay.remove();
+          document.body.classList.remove('office-list-open');
+        };
+      }
+
+      document.addEventListener('click', (event) => {
+        const card = event.target.closest('.office-kpis > div');
+        if (!card) return;
+        const cards = [...document.querySelectorAll('.office-kpis > div')];
+        openOfficeCategory(cards.indexOf(card));
+      });
     </script>
     <script type="module" src="/src/officina.js"></script>
   </body>
