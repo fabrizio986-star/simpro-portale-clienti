@@ -69,6 +69,16 @@ function bindClientButtons(scope = document) {
   });
 }
 
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.(".open-office-client");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  document.querySelector(".office-list-overlay")?.remove();
+  document.body.classList.remove("office-list-open");
+  clientSheet(button.dataset.client);
+});
+
 function clientSheet(clientId) {
   const client = officeData.clients.find((entry) => String(entry.id) === String(clientId));
   const jobs = officeData.jobs.filter((job) => String(job.client_id) === String(clientId));
