@@ -63,6 +63,12 @@ function officeCard(item, jobs, clients) {
   return `<article class="office-card" data-search="${esc(searchable)}"><div><span class="office-status status-${esc(status)}">${esc(labels[status] || status)}</span><h3>${esc(clientName)}</h3><p>${esc(item.job_code || job?.code || "Senza numero commessa")}</p><strong>${esc(painter)}</strong><small>Aggiornato: ${formatDate(item.updated_at || item.created_at)}</small>${item.notes ? `<small>Note trasporto: ${esc(item.notes)}</small>` : ""}${job ? `<button class="open-office-client" data-client="${esc(job.client_id)}" type="button">Apri scheda cliente</button>` : ""}</div>${item.photo_url ? `<a href="${esc(item.photo_url)}" target="_blank" rel="noopener"><img src="${esc(item.photo_url)}" alt="Foto lavorazione"></a>` : ""}</article>`;
 }
 
+function bindClientButtons(scope = document) {
+  scope.querySelectorAll(".open-office-client").forEach((button) => {
+    button.onclick = () => clientSheet(button.dataset.client);
+  });
+}
+
 function clientSheet(clientId) {
   const client = officeData.clients.find((entry) => String(entry.id) === String(clientId));
   const jobs = officeData.jobs.filter((job) => String(job.client_id) === String(clientId));
@@ -71,6 +77,18 @@ function clientSheet(clientId) {
   document.body.insertAdjacentHTML("beforeend", `<div class="office-modal-bg"><section class="office-modal"><button class="office-modal-close" type="button">×</button><span>SCHEDA CLIENTE</span><h2>${esc(client.name)}</h2><div class="office-job-list">${rows || '<div class="office-empty">Nessuna lavorazione collegata.</div>'}</div></section></div>`);
   document.querySelector(".office-modal-close").onclick = () => document.querySelector(".office-modal-bg")?.remove();
   document.querySelector(".office-modal-bg").onclick = (event) => { if (event.target.classList.contains("office-modal-bg")) event.currentTarget.remove(); };
+}
+
+function painterPickupSheet(painter, items, jobs, clients) {
+  document.querySelector(".office-modal-bg")?.remove();
+  const cards = items.length
+    ? items.map((item) => officeCard(item, jobs, clients)).join("")
+    : '<div class="office-empty">Nessun materiale da ritirare.</div>';
+  document.body.insertAdjacentHTML("beforeend", `<div class="office-modal-bg"><section class="office-modal"><button class="office-modal-close" type="button">×</button><span>MATERIALE DA RITIRARE</span><h2>${esc(painter)}</h2><div class="office-job-list">${cards}</div></section></div>`);
+  const modal = document.querySelector(".office-modal-bg");
+  modal.querySelector(".office-modal-close").onclick = () => modal.remove();
+  modal.onclick = (event) => { if (event.target === modal) modal.remove(); };
+  bindClientButtons(modal);
 }
 
 function applyOfficeSearch(rawQuery) {
@@ -136,11 +154,31 @@ async function officePage({ preserveView = false, silent = false } = {}) {
   const toCollect = rows.filter((item) => item.material_status === "ritirato");
 
   const section = (title, items, className) => `<section class="office-section ${className}"><div class="office-section-title"><h2>${title}</h2><span>${items.length}</span></div><div class="office-grid">${items.length ? items.map((item) => officeCard(item, jobs, clients)).join("") : '<div class="office-empty">Nessuna lavorazione.</div>'}</div></section>`;
-  root.innerHTML = `<header class="office-header">${logo()}<div><small>TABLET CAPOFFICINA</small><h1>Verniciature</h1><span id="office-live-status" class="office-live-status">○ Collegamento in corso</span></div><button id="office-refresh">Aggiorna ora</button></header><main class="office-wrap"><div class="office-kpis"><div><small>Da portare</small><strong>${toTake.length}</strong></div><div><small>Dal verniciatore</small><strong>${delivered.length}</strong></div><div><small>Da ritirare</small><strong>${toCollect.length}</strong></div></div><div class="office-last-update">Ultimo aggiornamento: <strong>${formatTime()}</strong></div><label class="office-search">Cerca cliente, commessa o nota<input id="office-search" type="search" inputmode="search" autocomplete="off" placeholder="Scrivi nome, numero commessa o parola nelle note" value="${esc(previousSearch)}"></label>${section("Da portare in verniciatura", toTake, "to-take")}${section("Consegnate ai verniciatori", delivered, "delivered")}${section("Da ritirare / rientrare", toCollect, "to-collect")}<section class="office-painters"><h2>Riepilogo per verniciatore</h2>${PAINTERS.map((painter) => `<div><span>${painter}</span><strong>${rows.filter((item) => normalize(item.painter) === painter).length}</strong></div>`).join("")}</section></main>`;
+  const painterSummary = PAINTERS.map((painter) => {
+    const pickupItems = toCollect.filter((item) => normalize(item.painter) === painter);
+    return `<div class="office-painter-link" data-painter="${esc(painter)}" role="button" tabindex="0"><span>${painter}</span><strong>${pickupItems.length}</strong></div>`;
+  }).join("");
+
+  root.innerHTML = `<header class="office-header">${logo()}<div><small>TABLET CAPOFFICINA</small><h1>Verniciature</h1><span id="office-live-status" class="office-live-status">○ Collegamento in corso</span></div><button id="office-refresh">Aggiorna ora</button></header><main class="office-wrap"><div class="office-kpis"><div><small>Da portare</small><strong>${toTake.length}</strong></div><div><small>Dal verniciatore</small><strong>${delivered.length}</strong></div><div><small>Da ritirare</small><strong>${toCollect.length}</strong></div></div><div class="office-last-update">Ultimo aggiornamento: <strong>${formatTime()}</strong></div><label class="office-search">Cerca cliente, commessa o nota<input id="office-search" type="search" inputmode="search" autocomplete="off" placeholder="Scrivi nome, numero commessa o parola nelle note" value="${esc(previousSearch)}"></label>${section("Da portare in verniciatura", toTake, "to-take")}${section("Consegnate ai verniciatori", delivered, "delivered")}${section("Da ritirare / rientrare", toCollect, "to-collect")}<section class="office-painters"><h2>Riepilogo materiale da ritirare</h2>${painterSummary}</section></main>`;
+
   document.querySelector("#office-refresh").onclick = () => officePage({ preserveView: true });
   const searchInput = document.querySelector("#office-search");
   ["input", "keyup", "search", "change"].forEach((eventName) => searchInput.addEventListener(eventName, () => applyOfficeSearch(searchInput.value)));
-  document.querySelectorAll(".open-office-client").forEach((button) => button.onclick = () => clientSheet(button.dataset.client));
+  bindClientButtons();
+  document.querySelectorAll(".office-painter-link").forEach((row) => {
+    const open = () => {
+      const painter = normalize(row.dataset.painter);
+      const pickupItems = toCollect.filter((item) => normalize(item.painter) === painter);
+      painterPickupSheet(painter, pickupItems, jobs, clients);
+    };
+    row.onclick = open;
+    row.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        open();
+      }
+    };
+  });
   if (previousSearch) applyOfficeSearch(previousSearch);
   if (preserveView) requestAnimationFrame(() => window.scrollTo({ top: previousScroll, behavior: "auto" }));
 
