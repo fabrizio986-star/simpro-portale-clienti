@@ -918,6 +918,23 @@ async function driverPage() {
   const resultsNode = document.querySelector("#driver-search-results");
   const selectedNode = document.querySelector("#driver-selected-job");
 
+  const normalizedClientName = (value) => String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+  const similarClientNames = (value) => {
+    const query = normalizedClientName(value);
+    if (query.length < 3) return [];
+    const names = [...new Set(searchableJobs.map((job) => String(job.client_name || "").trim()).filter(Boolean))];
+    return names.filter((name) => {
+      const normalized = normalizedClientName(name);
+      return normalized === query || normalized.includes(query) || query.includes(normalized);
+    }).slice(0, 6);
+  };
+
   const renderSearchResults = (query = "") => {
     const q = String(query || "").trim().toLowerCase();
     if (q.length < 2) {
@@ -996,6 +1013,14 @@ async function driverPage() {
     delete data.photo;
     const message = document.querySelector("#driver-message");
     try {
+      const clientMatches = similarClientNames(data.client_name);
+      const exactClient = clientMatches.find((name) => normalizedClientName(name) === normalizedClientName(data.client_name));
+      if (!exactClient && clientMatches.length === 1) {
+        data.client_name = clientMatches[0];
+        form.client_name.value = clientMatches[0];
+      } else if (!exactClient && clientMatches.length > 1) {
+        throw new Error(`Ho trovato piu clienti simili: ${clientMatches.join(", ")}. Cerca e seleziona la commessa corretta prima di continuare`);
+      }
       const file = form.photo.files?.[0];
       const photoRequired = data.material_status === "consegnato";
       if (photoRequired && !file) throw new Error("La foto e obbligatoria quando porti/consegni il materiale. Scatta una foto prima di registrare il movimento.");
