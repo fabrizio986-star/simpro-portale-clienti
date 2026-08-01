@@ -22,6 +22,47 @@ const statusLabel = (value) => paintStatuses[value || ""] || value || "Non asseg
 const formatDate = (value) => value ? new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" }).format(new Date(value)) : "-";
 const logo = () => '<a class="brand" href="./" aria-label="SIMPRO Lamiere"><img src="https://www.simprolamiere.it/wp-content/uploads/2024/07/logo-simpro-128x128.png" alt="SIMPRO Lamiere"></a>';
 let rows = [];
+let realtimeChannel = null;
+
+async function enableNotifications() {
+  if (!("Notification" in window)) return alert("Questo tablet non supporta le notifiche del browser.");
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") return alert("Notifiche non autorizzate. Abilitale dalle impostazioni del browser.");
+  await navigator.serviceWorker?.register("/sw.js");
+  localStorage.setItem("simpro-foreman-notifications", "enabled");
+  render();
+}
+
+async function notifyForeman(item) {
+  const status = statusLabel(item.material_status);
+  const client = item.client_name || item.job_code || "Commessa non indicata";
+  const body = `${client} · ${status}${item.painter ? ` · ${normalizePainter(item.painter)}` : ""}`;
+  const banner = document.createElement("button");
+  banner.type = "button";
+  banner.className = "foreman-driver-alert";
+  banner.innerHTML = `<strong>Movimento di Gabriele</strong><span>${esc(body)}</span>`;
+  banner.onclick = () => banner.remove();
+  document.body.appendChild(banner);
+  setTimeout(() => banner.remove(), 12000);
+
+  if (localStorage.getItem("simpro-foreman-notifications") !== "enabled" || Notification.permission !== "granted") return;
+  const registration = await navigator.serviceWorker?.getRegistration();
+  const options = { body, icon: "/icons/icon-192.svg", badge: "/icons/icon-192.svg", tag: `gabriele-${item.id || Date.now()}`, data: { url: "/capofficina.html" } };
+  if (registration) return registration.showNotification("Gabriele ha registrato un movimento", options);
+  new Notification("Gabriele ha registrato un movimento", options);
+}
+
+function subscribeRealtime() {
+  if (realtimeChannel) return;
+  realtimeChannel = supabase.channel("simpro-capofficina-autista")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "painting_deliveries" }, (payload) => {
+      const item = payload.new || {};
+      if (String(item.driver_name || "").trim().toLowerCase() !== "gabriele") return;
+      notifyForeman(item);
+      setTimeout(loadPage, 400);
+    })
+    .subscribe();
+}
 
 function showAuth(message, ok = false) {
   const node = document.querySelector("#auth-message");
@@ -90,7 +131,7 @@ function render() {
     { label: "In verniciatura", value: inPainting.length, filter: "painting" },
     ...painters.map((painter) => ({ label: painter, value: inPainting.filter((item) => painterFor(item) === painter).length, filter: painter }))
   ];
-  root.innerHTML = `<header class="topbar foreman-topbar">${logo()}<div class="account"><span><small>Capofficina</small><strong>SIMPRO Lamiere</strong></span><button id="logout">Esci</button></div></header><main class="foreman-page"><section class="admin-title foreman-title"><div><span class="eyebrow red">AREA CAPOFFICINA</span><h1>Controllo rapido</h1><p>Clienti, commesse e materiale in verniciatura.</p></div><button class="secondary fit" id="refresh">Aggiorna</button></section><section class="panel foreman-search-panel foreman-search-first"><label>Cerca subito<input id="search" type="search" inputmode="search" autocomplete="off" placeholder="Scrivi cliente, codice o verniciatore..."></label><div class="foreman-quick-actions">${quickItems.map((item) => `<button class="foreman-quick foreman-filter ${item.hot ? "hot" : ""}" data-filter="${esc(item.filter)}" type="button"><strong>${item.value}</strong><span>${esc(item.label)}</span></button>`).join("")}</div><details class="foreman-more-filters"><summary>Altri filtri</summary><div class="foreman-filters"><button class="secondary fit foreman-filter active" data-filter="all" type="button">Tutto</button><button class="secondary fit foreman-filter" data-filter="painting" type="button">Solo verniciatura</button><button class="secondary fit foreman-filter" data-filter="errors" type="button">Da controllare/errori</button>${painters.map((p) => `<button class="secondary fit foreman-filter" data-filter="${p}" type="button">${p}</button>`).join("")}</div></details></section><div class="kpi-grid foreman-kpis foreman-desktop-only"><div class="kpi"><span>•</span><div><small>Lavorazioni</small><strong>${rows.length}</strong></div></div><div class="kpi"><span>•</span><div><small>In verniciatura</small><strong>${inPainting.length}</strong></div></div><div class="kpi ${checks.length ? "danger" : ""}"><span>!</span><div><small>Da controllare</small><strong>${checks.length}</strong></div></div><div class="kpi ${errors.length ? "danger" : ""}"><span>!</span><div><small>Errori verniciatore</small><strong>${errors.length}</strong></div></div></div>${painterBoard(inPainting)}<section class="foreman-list">${rows.map(row).join("") || '<div class="empty"><p>Nessuna lavorazione presente.</p></div>'}</section></main>`;
+  root.innerHTML = `<header class="topbar foreman-topbar">${logo()}<div class="account"><span><small>Capofficina</small><strong>SIMPRO Lamiere</strong></span><button id="logout">Esci</button></div></header><main class="foreman-page"><section class="admin-title foreman-title"><div><span class="eyebrow red">AREA CAPOFFICINA</span><h1>Controllo rapido</h1><p>Clienti, commesse e materiale in verniciatura.</p></div><div class="title-actions"><button class="primary fit" id="foreman-notifications">Attiva notifiche</button><button class="secondary fit" id="refresh">Aggiorna</button></div></section><section class="panel foreman-search-panel foreman-search-first"><label>Cerca subito<input id="search" type="search" inputmode="search" autocomplete="off" placeholder="Scrivi cliente, codice o verniciatore..."></label><div class="foreman-quick-actions">${quickItems.map((item) => `<button class="foreman-quick foreman-filter ${item.hot ? "hot" : ""}" data-filter="${esc(item.filter)}" type="button"><strong>${item.value}</strong><span>${esc(item.label)}</span></button>`).join("")}</div><details class="foreman-more-filters"><summary>Altri filtri</summary><div class="foreman-filters"><button class="secondary fit foreman-filter active" data-filter="all" type="button">Tutto</button><button class="secondary fit foreman-filter" data-filter="painting" type="button">Solo verniciatura</button><button class="secondary fit foreman-filter" data-filter="errors" type="button">Da controllare/errori</button>${painters.map((p) => `<button class="secondary fit foreman-filter" data-filter="${p}" type="button">${p}</button>`).join("")}</div></details></section><div class="kpi-grid foreman-kpis foreman-desktop-only"><div class="kpi"><span>•</span><div><small>Lavorazioni</small><strong>${rows.length}</strong></div></div><div class="kpi"><span>•</span><div><small>In verniciatura</small><strong>${inPainting.length}</strong></div></div><div class="kpi ${checks.length ? "danger" : ""}"><span>!</span><div><small>Da controllare</small><strong>${checks.length}</strong></div></div><div class="kpi ${errors.length ? "danger" : ""}"><span>!</span><div><small>Errori verniciatore</small><strong>${errors.length}</strong></div></div></div>${painterBoard(inPainting)}<section class="foreman-list">${rows.map(row).join("") || '<div class="empty"><p>Nessuna lavorazione presente.</p></div>'}</section></main>`;
   let active = "all";
   const apply = () => {
     const q = String(document.querySelector("#search").value || "").toLowerCase().trim();
@@ -111,6 +152,11 @@ function render() {
   };
   document.querySelector("#logout").onclick = () => supabase.auth.signOut().then(loginPage);
   document.querySelector("#refresh").onclick = loadPage;
+  const notificationButton = document.querySelector("#foreman-notifications");
+  const notificationsEnabled = "Notification" in window && Notification.permission === "granted" && localStorage.getItem("simpro-foreman-notifications") === "enabled";
+  notificationButton.textContent = notificationsEnabled ? "Notifiche attive" : "Attiva notifiche";
+  notificationButton.className = `${notificationsEnabled ? "secondary" : "primary"} fit`;
+  notificationButton.onclick = enableNotifications;
   document.querySelector("#search").oninput = apply;
   document.querySelectorAll(".foreman-filter").forEach((button) => button.onclick = () => setActive(button.dataset.filter));
 }
@@ -127,6 +173,7 @@ async function loadPage() {
   }
   rows = Array.isArray(data) ? data : [];
   render();
+  subscribeRealtime();
 }
 
 loadPage();
