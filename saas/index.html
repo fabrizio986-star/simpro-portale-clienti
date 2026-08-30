@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#111827" />
+  <title>FerieFlow - Ferie e permessi senza caos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="#">Ferie<span>Flow</span></a>
+    <nav>
+      <a href="#funzioni">Funzioni</a><a href="#prezzi">Prezzi</a><a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-actions"><button class="ghost" id="openLogin">Accedi</button><button class="primary" id="openSignup">Prova gratis</button></div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow">Gestione assenze per piccole e medie aziende</div>
+        <h1>Ferie e permessi.<br><span>Senza messaggi persi.</span></h1>
+        <p>Il collaboratore invia la richiesta dal telefono. Tu approvi in pochi secondi. Calendario, regole e storico sempre sotto controllo.</p>
+        <div class="hero-actions"><button class="primary xl" id="heroSignup">Inizia 14 giorni gratis</button><button class="secondary xl" id="showDemo">Guarda la dashboard</button></div>
+        <div class="trust">Nessuna carta richiesta · Attivazione in pochi minuti</div>
+      </div>
+      <div class="hero-visual">
+        <div class="glow glow1"></div><div class="glow glow2"></div>
+        <div class="app-card">
+          <div class="app-top"><div><small>Buongiorno</small><strong>Officina Rossi</strong></div><div class="avatar">OR</div></div>
+          <div class="stats"><div><span>Da approvare</span><b>4</b></div><div><span>Assenti oggi</span><b>2</b></div><div><span>Collaboratori</span><b>18</b></div></div>
+          <div class="calendar-card"><div class="calendar-head"><strong>Settembre 2026</strong><span>‹ &nbsp; ›</span></div><div class="week"><span>L</span><span>M</span><span>M</span><span>G</span><span>V</span><span>S</span><span>D</span></div><div class="days" id="calendarDays"></div></div>
+          <div class="request-row"><div class="person"><div class="person-avatar">LB</div><div><strong>Luca Bianchi</strong><span>Ferie · 3 giorni</span></div></div><div class="chips"><button class="reject">Rifiuta</button><button class="approve">Approva</button></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="logos"><span>PER CHI OGGI USA</span><b>WhatsApp</b><b>Excel</b><b>Fogli cartacei</b><b>Email</b></section>
+
+    <section class="section" id="funzioni">
+      <div class="section-title"><span>Tutto in un unico posto</span><h2>Semplice per chi lavora.<br>Potente per chi gestisce.</h2></div>
+      <div class="feature-grid">
+        <article class="feature purple"><div class="icon">✓</div><h3>Richieste in 10 secondi</h3><p>Ferie e permessi dal telefono, con riepilogo prima dell'invio.</p></article>
+        <article class="feature blue"><div class="icon">◫</div><h3>Calendario aziendale</h3><p>Vedi subito chi è assente, quando e per quanto tempo.</p></article>
+        <article class="feature green"><div class="icon">⚡</div><h3>Approvazione immediata</h3><p>Approva o rifiuta senza cercare messaggi nelle chat.</p></article>
+        <article class="feature orange"><div class="icon">⌁</div><h3>Regole automatiche</h3><p>Preavviso minimo, giorni bloccati e limiti configurabili.</p></article>
+      </div>
+    </section>
+
+    <section class="section dark-section" id="prezzi">
+      <div class="section-title light"><span>Prezzi semplici</span><h2>Parti gratis. Cresci quando vuoi.</h2></div>
+      <div class="pricing">
+        <article><h3>Starter</h3><div class="price">29€<small>/mese</small></div><p>Fino a 10 collaboratori</p><ul><li>Ferie e permessi</li><li>Calendario</li><li>App mobile/PWA</li><li>Storico richieste</li></ul><button class="secondary full signupPlan" data-plan="starter">Prova gratis</button></article>
+        <article class="popular"><div class="badge">PIÙ SCELTO</div><h3>Business</h3><div class="price">49€<small>/mese</small></div><p>Fino a 30 collaboratori</p><ul><li>Tutto di Starter</li><li>Più amministratori</li><li>Regole avanzate</li><li>Report mensili</li></ul><button class="primary full signupPlan" data-plan="business">Prova gratis</button></article>
+        <article><h3>Pro</h3><div class="price">79€<small>/mese</small></div><p>Fino a 100 collaboratori</p><ul><li>Tutto di Business</li><li>Brand personalizzato</li><li>Supporto prioritario</li><li>Esportazioni avanzate</li></ul><button class="secondary full signupPlan" data-plan="pro">Prova gratis</button></article>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal hidden" id="authModal"><div class="modal-card"><button class="close" id="closeModal">×</button><div class="modal-brand">Ferie<span>Flow</span></div><h2 id="modalTitle">Crea il tuo spazio aziendale</h2><p id="modalSub">14 giorni gratis, nessuna carta richiesta.</p><form id="authForm"><div id="companyField"><label>Nome azienda<input id="company" autocomplete="organization" placeholder="Es. Officina Rossi" /></label></div><label>Email<input id="email" type="email" required autocomplete="email" placeholder="nome@azienda.it" /></label><label>Password<input id="password" type="password" required minlength="8" autocomplete="new-password" placeholder="Almeno 8 caratteri" /></label><button class="primary full" id="submitAuth" type="submit">Crea account</button><div class="form-note" id="formNote"></div></form></div></div>
+
+  <div class="demo hidden" id="demoPanel"><div class="demo-shell"><aside><div class="brand inverse">Ferie<span>Flow</span></div><a class="active">Panoramica</a><a>Richieste</a><a>Calendario</a><a>Collaboratori</a><a>Report</a><a>Impostazioni</a></aside><section><div class="demo-top"><div><small>Dashboard azienda</small><h2>Buongiorno 👋</h2></div><button class="ghost" id="closeDemo">Chiudi demo</button></div><div class="demo-stats"><div><span>Da approvare</span><b>4</b><em>+2 oggi</em></div><div><span>Assenti oggi</span><b>2</b><em>su 18</em></div><div><span>Ferie questo mese</span><b>11</b><em>giorni totali</em></div><div><span>Permessi</span><b>6h</b><em>questo mese</em></div></div><div class="demo-grid"><div class="demo-card"><h3>Richieste recenti</h3><div class="demo-list"><div><span class="dot purple-dot"></span><strong>Luca Bianchi</strong><small>Ferie · 14-16 Set</small><button class="approve">Approva</button></div><div><span class="dot blue-dot"></span><strong>Giulia Verdi</strong><small>Permesso · 8 Set, 14:00-16:00</small><button class="approve">Approva</button></div><div><span class="dot orange-dot"></span><strong>Marco Neri</strong><small>Ferie · 21 Set</small><button class="approve">Approva</button></div></div></div><div class="demo-card"><h3>Prossime assenze</h3><div class="absence"><b>14</b><span>SET</span><div><strong>Luca Bianchi</strong><small>3 giorni</small></div></div><div class="absence"><b>21</b><span>SET</span><div><strong>Marco Neri</strong><small>1 giorno</small></div></div><div class="absence"><b>28</b><span>SET</span><div><strong>Anna Blu</strong><small>2 giorni</small></div></div></div></div></section></div></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
