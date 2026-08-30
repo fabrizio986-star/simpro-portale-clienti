@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 const supabase=createClient('https://jrudwnrorufmxjtjtwip.supabase.co','sb_publishable_RdYwFepv4SzTxHg2jiEVVg_nYFfQKxs');
-const allowedHosts=new Set(['ferieflow-preview-eko6r8gj1-geationale.vercel.app','ferieflow-preview-geationale.vercel.app']);
-if(allowedHosts.has(location.host)){
+const previewHost=location.hostname==='ferieflow-preview-geationale.vercel.app'||/^ferieflow-preview-[a-z0-9-]+-geationale\.vercel\.app$/.test(location.hostname);
+if(previewHost){
   document.addEventListener('click',async(e)=>{
     const btn=e.target.closest('#signup');
     if(!btn)return;
