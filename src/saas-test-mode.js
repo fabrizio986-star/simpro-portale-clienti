@@ -11,11 +11,14 @@ if(previewHost){
     const msg=document.querySelector('#msg');
     if(!email||!password||!company){if(msg)msg.textContent='Compila email, password e nome azienda.';return;}
     if(password.length<8){if(msg)msg.textContent='La password deve avere almeno 8 caratteri.';return;}
-    if(msg)msg.textContent='Creo l’account di test...';
+    if(msg)msg.textContent='Creo o recupero l’account di test...';
     const {data:reg,error:regErr}=await supabase.functions.invoke('saas-test-register',{body:{email,password}});
     if(regErr||reg?.error){if(msg)msg.textContent=reg?.error||regErr?.message||'Errore registrazione';return;}
     const {error:loginErr}=await supabase.auth.signInWithPassword({email,password});
-    if(loginErr){if(msg)msg.textContent=loginErr.message;return;}
+    if(loginErr){
+      if(msg)msg.textContent=reg?.exists?'Email già registrata: la password inserita non coincide con quella dell’account. Premi Accedi o usa un’altra email.':loginErr.message;
+      return;
+    }
     const {data:boot,error:bootErr}=await supabase.functions.invoke('saas-bootstrap',{body:{name:company}});
     if(bootErr){if(msg)msg.textContent=bootErr.message;return;}
     const organization_id=boot?.organization?.id||boot?.organization_id;
